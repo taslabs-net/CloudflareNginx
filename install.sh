@@ -17,7 +17,7 @@ show_header() {
     clear
     echo -e "${BLUE}"
     echo "==============================================="
-    echo "        CloudNginx Automated Setup"
+    echo "        Cloudflare Nginx Automated Setup"
     echo "==============================================="
     echo -e "${NC}"
 }
