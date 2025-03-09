@@ -1,6 +1,6 @@
 # Cloudflare Nginx SSL Automation
  
-*Automated SSL configuration for Nginx with Cloudflare DNS validation*
+*Automated SSL configuration with 30 day renewal with Let's Encrypt for Nginx with Cloudflare DNS validation*
 
 ## Features
 
