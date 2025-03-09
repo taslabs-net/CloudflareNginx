@@ -29,7 +29,6 @@ This script automates the complex process of:
 - Proxmox LXC container (or any Debian/Ubuntu server)
 - Root access
 - Domain name with DNS managed through Cloudflare
-- Cloudflare API key with `DNS:Edit` permissions
 
 ## 🔧 Installation
 
@@ -70,15 +69,11 @@ sudo ./install.sh
 
 ## 🔒 Security Notes
 
-1. **Cloudflare API Key**:
-   - Use limited-scope API tokens instead of global keys
-   - Recommended permissions: `Zone:DNS:Edit`
-
-2. **Firewall**:
+1. **Firewall**:
    - Ensure Proxmox host firewall allows ports 80/443
    - Script automatically configures container firewall if UFW is present
 
-3. **Credential Storage**:
+2. **Credential Storage**:
    - Cloudflare API keys stored in `/etc/letsencrypt/cloudflare.ini`
    - File permissions set to `600`
 
