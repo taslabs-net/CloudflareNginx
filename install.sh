@@ -1,5 +1,5 @@
 #!/bin/bash
-# CloudNginx Installer with WebSocket Support
+# CloudNginx Installer with WebSocket Support and Persistence
 
 # Configuration
 BLUE='\033[0;34m'
@@ -136,21 +136,65 @@ configure_firewall() {
     fi
 }
 
+ensure_service_persistence() {
+    echo -e "${BLUE}Ensuring service persistence...${NC}"
+    
+    # Enable and start Nginx if not already active
+    if ! systemctl is-active --quiet nginx; then
+        systemctl enable --now nginx
+    fi
+    
+    # Enable Certbot renewal timer
+    if systemctl list-timers | grep -q certbot; then
+        systemctl enable --now certbot.timer
+    fi
+}
+
+setup_certbot_renewal() {
+    echo -e "${BLUE}Setting up Certbot renewal...${NC}"
+    
+    # Create renewal hook
+    mkdir -p /etc/letsencrypt/renewal-hooks/deploy
+    cat > /etc/letsencrypt/renewal-hooks/deploy/nginx-reload.sh <<EOF
+#!/bin/bash
+systemctl reload nginx
+EOF
+    
+    chmod +x /etc/letsencrypt/renewal-hooks/deploy/nginx-reload.sh
+    
+    # Test renewal
+    if certbot renew --dry-run; then
+        echo -e "${BLUE}Certificate renewal configured successfully${NC}"
+    else
+        echo -e "${BLUE}Certificate renewal test failed${NC}"
+        exit 1
+    fi
+}
+
 main() {
     show_header
     check_root
     handle_cloudflare_credentials
     install_core_dependencies
     generate_ssl
+    setup_certbot_renewal
     
     ask_question "Enter your application port (default: 3000)" PORT
     PORT=${PORT:-3000}
     
     configure_nginx "$DOMAIN" "$PORT"
     configure_firewall
+    ensure_service_persistence
     
     echo -e "${BLUE}Setup completed successfully!${NC}"
     echo -e "${BLUE}Access your site at: https://${DOMAIN}${NC}"
+    
+    # Display important information
+    echo -e "\n${BLUE}Important Notes:${NC}"
+    echo -e "1. Your Cloudflare credentials are stored securely at ${CLOUDFLARE_CRED_PATH}"
+    echo -e "2. SSL certificates will auto-renew before expiration"
+    echo -e "3. Nginx is configured to start automatically on boot"
+    echo -e "4. Firewall rules (if UFW is present) are persistent"
 }
 
 main
