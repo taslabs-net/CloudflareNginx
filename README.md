@@ -1,4 +1,6 @@
 # Cloudflare Nginx SSL Automation
+
+## Made it a [Wiki](https://github.com/taslabs-net/CloudflareNginx/wiki)
  
 *Automated SSL configuration with 30 day renewal with Let's Encrypt for Nginx with Cloudflare DNS validation*
 
