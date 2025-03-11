@@ -174,8 +174,8 @@ main() {
     generate_ssl
     setup_certbot_renewal
     
-    ask_question "Enter your application port (default: 3000)" PORT
-    PORT=${PORT:-3000}
+    ask_question "Enter your application port (default: 8180)" PORT
+    PORT=${PORT:-8180}
     
     configure_nginx "$DOMAIN" "$PORT"
     configure_firewall
