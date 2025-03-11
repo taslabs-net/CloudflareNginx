@@ -9,7 +9,7 @@ Change first line from `:{$CADDY_PORT:80} {` to `:{$CADDY_PORT:8180} {`  (or any
 
 Reboot
 
-Install my modified CloudflareNginx Script 
+Install modified CloudflareNginx Script 
 ```
 curl -sLO https://raw.githubusercontent.com/taslabs-net/CloudflareNginx/main/installwithpocketid.sh
 ```
