@@ -16,12 +16,12 @@ curl -sLO https://raw.githubusercontent.com/taslabs-net/CloudflareNginx/main/ins
 
 Make it executable: 
 ```
-chmod +x install.sh
+chmod +x installwithpocketid.sh
 ```
 
 Run script
 ```
-sudo ./install.sh
+sudo ./installwithpocketid.sh
 ```
 
 What happens:  
