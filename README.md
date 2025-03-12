@@ -111,3 +111,6 @@ certbot delete --cert-name yourdomain.com
 ```bash
 rm /etc/letsencrypt/cloudflare.ini
 ```
+
+
+Personal project. Not officially sponsored by Cloudflare 
