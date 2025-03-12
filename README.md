@@ -34,19 +34,28 @@ This script automates the complex process of:
 
 ## 🔧 Installation
 
-1. Download the script:
-```bash
+1. Download the script without webhook support:
+```
 curl -sLO https://raw.githubusercontent.com/taslabs-net/CloudflareNginx/main/install.sh
 ```
-
+Download the script with webhook support for Discord, Google Chat, and Slack.  It will also ask if you want it on Successful Renewal Only, Failure Only, or Both (default)
+```
+curl -sLO https://raw.githubusercontent.com/taslabs-net/CloudflareNginx/main/install_webhook.sh
+```
 2. Make it executable:
-```bash
+```
 chmod +x install.sh
+```
+```
+chmod +x install_webhook.sh
 ```
 
 3. Run as root:
-```bash
+```
 sudo ./install.sh
+```
+```
+sudo ./install_webhook.sh
 ```
 
 ## 🖥️ What Happens During Installation
