@@ -191,22 +191,25 @@ EOF
                 esac
                 
                 # Send test webhook but redirect detailed output to log file
-                RESPONSE=$(curl -s -X POST -H "Content-Type: application/json" \
+                HTTP_CODE=$(curl -s -o /tmp/webhook_response -w "%{http_code}" -X POST -H "Content-Type: application/json" \
                           -d "$TEST_PAYLOAD" "$WEBHOOK_URL" 2>> "$LOG_FILE")
-                
-                # Log the response but don't show it to the user
-                echo "Webhook test response: $RESPONSE" >> "$LOG_FILE"
-                
-                # Check if webhook succeeded based on platform
+
+                # Log the response and HTTP code
+                cat /tmp/webhook_response >> "$LOG_FILE" 2>/dev/null
+                echo "Webhook test HTTP response code: $HTTP_CODE" >> "$LOG_FILE"
+
+                # Check if webhook succeeded based on platform and HTTP code
                 WEBHOOK_SUCCESS=0
                 case "$WEBHOOK_PLATFORM" in
-                    D) # Discord
-                        [[ "$RESPONSE" == *"id"* ]] && WEBHOOK_SUCCESS=1
+                    D) # Discord - success codes are 204 (no content) or 200 (OK)
+                        [[ "$HTTP_CODE" == "204" || "$HTTP_CODE" == "200" ]] && WEBHOOK_SUCCESS=1
                         ;;
                     S) # Slack
+                        RESPONSE=$(cat /tmp/webhook_response 2>/dev/null)
                         [[ "$RESPONSE" == "ok" ]] && WEBHOOK_SUCCESS=1
                         ;;
                     G) # Google Chat
+                        RESPONSE=$(cat /tmp/webhook_response 2>/dev/null)
                         [[ "$RESPONSE" == *"name"* ]] && WEBHOOK_SUCCESS=1
                         ;;
                 esac
