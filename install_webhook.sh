@@ -1,8 +1,12 @@
 #!/bin/bash
 # CloudNginx Installer with WebSocket Support, Persistence, and Fixed Webhook Notifications
+# With cleaner output (less verbose)
 
 # Configuration
 BLUE='\033[0;34m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+RED='\033[0;31m'
 NC='\033[0m'
 DEFAULT_PORT="443"
 CLOUDFLARE_CRED_PATH="/etc/letsencrypt/cloudflare.ini"
@@ -10,11 +14,40 @@ TMP_DIR=$(mktemp -d)
 WEBHOOK_URL=""
 WEBHOOK_MODE=""
 WEBHOOK_PLATFORM="D"  # Default to Discord
+LOG_FILE="/var/log/cloudnginx-install.log"
+
+# Create log file and ensure it's writable
+touch "$LOG_FILE" 2>/dev/null || true
+chmod 644 "$LOG_FILE" 2>/dev/null || true
 
 cleanup() {
     rm -rf "$TMP_DIR"
 }
 trap cleanup EXIT
+
+log() {
+    echo "$(date): $1" >> "$LOG_FILE"
+}
+
+log_and_print() {
+    echo -e "${BLUE}$1${NC}"
+    log "$1"
+}
+
+log_success() {
+    echo -e "${GREEN}✓ $1${NC}"
+    log "[SUCCESS] $1"
+}
+
+log_warning() {
+    echo -e "${YELLOW}⚠ $1${NC}"
+    log "[WARNING] $1"
+}
+
+log_error() {
+    echo -e "${RED}✗ $1${NC}"
+    log "[ERROR] $1"
+}
 
 show_header() {
     clear
@@ -23,34 +56,42 @@ show_header() {
     echo "        Cloudflare Nginx Automated Setup"
     echo "==============================================="
     echo -e "${NC}"
+    log "CloudNginx installation started"
 }
 
 check_root() {
-    [ "$EUID" -eq 0 ] || { echo "Please run as root"; exit 1; }
+    [ "$EUID" -eq 0 ] || { log_error "Please run as root"; exit 1; }
 }
 
 ask_question() {
     echo -e "${BLUE}"
     read -r -p "$1: " ${2}
     echo -e "${NC}"
+    log "User input for '$1': ${!2}"
 }
 
 validate_domain() {
     [[ "$1" =~ ^([a-zA-Z0-9](-?[a-zA-Z0-9])*\.)+[a-zA-Z]{2,}$ ]] || {
-        echo "Invalid domain format"; exit 1
+        log_error "Invalid domain format"; exit 1
     }
 }
 
 install_core_dependencies() {
-    echo -e "${BLUE}Updating system packages...${NC}"
-    apt-get update -qq && apt-get upgrade -y -qq
+    log_and_print "Updating system packages..."
+    apt-get update -qq >> "$LOG_FILE" 2>&1 && apt-get upgrade -y -qq >> "$LOG_FILE" 2>&1
+    if [ $? -eq 0 ]; then
+        log_success "System packages updated"
+    else
+        log_warning "Some updates may have failed. Check $LOG_FILE for details"
+    fi
     
-    echo -e "${BLUE}Installing required components...${NC}"
-    apt-get install -y -qq \
-        nginx \
-        python3-certbot-dns-cloudflare \
-        curl \
-        ufw
+    log_and_print "Installing required components..."
+    apt-get install -y -qq nginx python3-certbot-dns-cloudflare curl ufw >> "$LOG_FILE" 2>&1
+    if [ $? -eq 0 ]; then
+        log_success "Required components installed"
+    else
+        log_warning "Some components may not have installed correctly. Check $LOG_FILE for details"
+    fi
 }
 
 handle_cloudflare_credentials() {
@@ -60,12 +101,13 @@ handle_cloudflare_credentials() {
     
     validate_domain "$DOMAIN"
     
-    mkdir -p $(dirname "$CLOUDFLARE_CRED_PATH")
+    mkdir -p $(dirname "$CLOUDFLARE_CRED_PATH") >> "$LOG_FILE" 2>&1
     cat > "$CLOUDFLARE_CRED_PATH" <<EOF
 dns_cloudflare_email = ${CF_EMAIL}
 dns_cloudflare_api_key = ${CF_API_KEY}
 EOF
-    chmod 600 "$CLOUDFLARE_CRED_PATH"
+    chmod 600 "$CLOUDFLARE_CRED_PATH" >> "$LOG_FILE" 2>&1
+    log_success "Cloudflare credentials saved"
 
     # Ask if the user wants webhook notifications
     ask_question "Do you want a webhook notification? (Y/N)" WEBHOOK_CHOICE
@@ -79,7 +121,7 @@ EOF
         
         # Validate platform selection
         if [[ ! "$WEBHOOK_PLATFORM" =~ ^[DSG]$ ]]; then
-            echo -e "${BLUE}Invalid platform choice. Defaulting to Discord.${NC}"
+            log_warning "Invalid platform choice. Defaulting to Discord."
             WEBHOOK_PLATFORM="D"
         fi
         
@@ -97,11 +139,11 @@ EOF
             ask_question "Webhook URL?" WEBHOOK_URL
             # Test webhook immediately
             if [ -n "$WEBHOOK_URL" ]; then
-                echo -e "${BLUE}Testing webhook on $(case "$WEBHOOK_PLATFORM" in
+                log_and_print "Testing webhook on $(case "$WEBHOOK_PLATFORM" in
                     D) echo "Discord" ;;
                     S) echo "Slack" ;;
                     G) echo "Google Chat" ;;
-                esac)...${NC}"
+                esac)..."
                 
                 # Different payload format based on platform
                 case "$WEBHOOK_PLATFORM" in
@@ -148,10 +190,31 @@ EOF
                         ;;
                 esac
                 
-                if curl -s -X POST -H "Content-Type: application/json" -d "$TEST_PAYLOAD" "$WEBHOOK_URL"; then
-                    echo -e "${BLUE}Webhook test successful${NC}"
+                # Send test webhook but redirect detailed output to log file
+                RESPONSE=$(curl -s -X POST -H "Content-Type: application/json" \
+                          -d "$TEST_PAYLOAD" "$WEBHOOK_URL" 2>> "$LOG_FILE")
+                
+                # Log the response but don't show it to the user
+                echo "Webhook test response: $RESPONSE" >> "$LOG_FILE"
+                
+                # Check if webhook succeeded based on platform
+                WEBHOOK_SUCCESS=0
+                case "$WEBHOOK_PLATFORM" in
+                    D) # Discord
+                        [[ "$RESPONSE" == *"id"* ]] && WEBHOOK_SUCCESS=1
+                        ;;
+                    S) # Slack
+                        [[ "$RESPONSE" == "ok" ]] && WEBHOOK_SUCCESS=1
+                        ;;
+                    G) # Google Chat
+                        [[ "$RESPONSE" == *"name"* ]] && WEBHOOK_SUCCESS=1
+                        ;;
+                esac
+                
+                if [ $WEBHOOK_SUCCESS -eq 1 ]; then
+                    log_success "Webhook test successful"
                 else
-                    echo -e "${BLUE}Warning: Webhook test failed. Check your URL and try again.${NC}"
+                    log_warning "Webhook test might have failed. Check $LOG_FILE for details"
                     ask_question "Continue anyway? (Y/N)" CONTINUE
                     if [[ "${CONTINUE^^}" != "Y" ]]; then
                         exit 1
@@ -159,10 +222,10 @@ EOF
                 fi
             fi
         else
-            echo -e "${BLUE}Invalid choice. Webhook notifications will not be configured.${NC}"
+            log_warning "Invalid choice. Webhook notifications will not be configured."
         fi
     else
-        echo -e "${BLUE}Webhook notifications will not be configured.${NC}"
+        log_and_print "Webhook notifications will not be configured."
     fi
 }
 
@@ -171,7 +234,7 @@ send_webhook() {
     local message=$2
 
     if [ -n "$WEBHOOK_URL" ]; then
-        echo "Sending webhook notification: $status - $message"
+        log "Sending webhook notification: $status - $message"
         
         # Check if should send based on webhook mode
         local should_send=0
@@ -238,26 +301,31 @@ send_webhook() {
                     ;;
             esac
             
-            # Send the webhook with debug output
-            echo "Sending webhook to platform: $WEBHOOK_PLATFORM"
-            echo "Webhook URL: $WEBHOOK_URL"
-            curl -v -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$WEBHOOK_URL"
+            # Send the webhook but log details to file
+            curl -s -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$WEBHOOK_URL" >> "$LOG_FILE" 2>&1
+            
+            # Log success without showing details
+            if [ "$status" == "success" ]; then
+                log_success "Webhook notification sent"
+            else
+                log_warning "Webhook failure notification sent"
+            fi
         fi
     fi
 }
 
 generate_ssl() {
-    echo -e "${BLUE}Generating SSL certificate...${NC}"
+    log_and_print "Generating SSL certificate..."
     if certbot certonly --dns-cloudflare \
         --dns-cloudflare-credentials "$CLOUDFLARE_CRED_PATH" \
         -d "$DOMAIN" \
         --non-interactive \
         --agree-tos \
-        --email "$CF_EMAIL"; then
-        echo -e "${BLUE}SSL certificate generated successfully!${NC}"
+        --email "$CF_EMAIL" >> "$LOG_FILE" 2>&1; then
+        log_success "SSL certificate generated successfully!"
         send_webhook "success" "SSL certificate generated successfully for domain: $DOMAIN"
     else
-        echo -e "${BLUE}SSL certificate generation failed!${NC}"
+        log_error "SSL certificate generation failed!"
         send_webhook "failure" "SSL certificate generation failed for domain: $DOMAIN"
         exit 1
     fi
@@ -267,7 +335,7 @@ configure_nginx() {
     local DOMAIN=$1
     local PORT=$2
     
-    echo -e "${BLUE}Configuring NGINX for ${DOMAIN}...${NC}"
+    log_and_print "Configuring NGINX for ${DOMAIN}..."
     
     # Create full nginx configuration
     cat > "/etc/nginx/sites-available/${DOMAIN}" <<EOF
@@ -312,39 +380,51 @@ server {
 EOF
 
     # Enable site configuration
-    ln -sf "/etc/nginx/sites-available/${DOMAIN}" "/etc/nginx/sites-enabled/"
-    nginx -t && systemctl reload nginx
+    ln -sf "/etc/nginx/sites-available/${DOMAIN}" "/etc/nginx/sites-enabled/" >> "$LOG_FILE" 2>&1
+    nginx -t >> "$LOG_FILE" 2>&1 && systemctl reload nginx >> "$LOG_FILE" 2>&1
+    if [ $? -eq 0 ]; then
+        log_success "Nginx configured successfully"
+    else
+        log_error "Nginx configuration failed! Check $LOG_FILE for details."
+        exit 1
+    fi
 }
 
 configure_firewall() {
+    log_and_print "Configuring firewall..."
     if command -v ufw >/dev/null 2>&1; then
-        ufw allow 80/tcp
-        ufw allow 443/tcp
-        ufw reload
+        ufw allow 80/tcp >> "$LOG_FILE" 2>&1
+        ufw allow 443/tcp >> "$LOG_FILE" 2>&1
+        ufw reload >> "$LOG_FILE" 2>&1
+        log_success "Firewall rules added"
+    else
+        log_warning "UFW not found, firewall not configured"
     fi
 }
 
 ensure_service_persistence() {
-    echo -e "${BLUE}Ensuring service persistence...${NC}"
+    log_and_print "Ensuring service persistence..."
     
     # Enable and start Nginx if not already active
     if ! systemctl is-active --quiet nginx; then
-        systemctl enable --now nginx
+        systemctl enable --now nginx >> "$LOG_FILE" 2>&1
     fi
     
     # Enable Certbot renewal timer
     if systemctl list-timers | grep -q certbot; then
-        systemctl enable --now certbot.timer
+        systemctl enable --now certbot.timer >> "$LOG_FILE" 2>&1
     fi
+    
+    log_success "Services configured for auto-start"
 }
 
 setup_certbot_renewal() {
-    echo -e "${BLUE}Setting up Certbot renewal...${NC}"
+    log_and_print "Setting up Certbot renewal..."
     
     # Create renewal hooks if webhook is enabled
     if [ -n "$WEBHOOK_URL" ]; then
-        mkdir -p /etc/letsencrypt/renewal-hooks/deploy
-        mkdir -p /etc/letsencrypt/renewal-hooks/post
+        mkdir -p /etc/letsencrypt/renewal-hooks/deploy >> "$LOG_FILE" 2>&1
+        mkdir -p /etc/letsencrypt/renewal-hooks/post >> "$LOG_FILE" 2>&1
 
         # Deploy hook for successful renewals - complete standalone script
         cat > /etc/letsencrypt/renewal-hooks/deploy/webhook-notify.sh <<EOF
@@ -354,10 +434,10 @@ WEBHOOK_URL="$WEBHOOK_URL"
 WEBHOOK_MODE="$WEBHOOK_MODE"
 WEBHOOK_PLATFORM="$WEBHOOK_PLATFORM"
 DOMAIN="$DOMAIN"
+LOG_FILE="$LOG_FILE"
 
 # Send notification
-echo "Sending successful renewal webhook notification for \$DOMAIN"
-echo "Using webhook platform: $WEBHOOK_PLATFORM"
+echo "Sending successful renewal webhook notification for \$DOMAIN" >> "\$LOG_FILE"
 
 if [[ "$WEBHOOK_MODE" == "S" || "$WEBHOOK_MODE" == "B" ]]; then
     case "$WEBHOOK_PLATFORM" in
@@ -369,7 +449,7 @@ if [[ "$WEBHOOK_MODE" == "S" || "$WEBHOOK_MODE" == "B" ]]; then
                     "description": "Domain: '$DOMAIN'",
                     "color": 65280
                 }]
-            }' "$WEBHOOK_URL"
+            }' "$WEBHOOK_URL" >> "\$LOG_FILE" 2>&1
             ;;
         S) # Slack
             curl -s -X POST -H "Content-Type: application/json" -d '{
@@ -383,7 +463,7 @@ if [[ "$WEBHOOK_MODE" == "S" || "$WEBHOOK_MODE" == "B" ]]; then
                         }
                     }
                 ]
-            }' "$WEBHOOK_URL"
+            }' "$WEBHOOK_URL" >> "\$LOG_FILE" 2>&1
             ;;
         G) # Google Chat
             curl -s -X POST -H "Content-Type: application/json" -d '{
@@ -400,12 +480,12 @@ if [[ "$WEBHOOK_MODE" == "S" || "$WEBHOOK_MODE" == "B" ]]; then
                         }]
                     }]
                 }]
-            }' "$WEBHOOK_URL"
+            }' "$WEBHOOK_URL" >> "\$LOG_FILE" 2>&1
             ;;
     esac
 fi
 EOF
-        chmod +x /etc/letsencrypt/renewal-hooks/deploy/webhook-notify.sh
+        chmod +x /etc/letsencrypt/renewal-hooks/deploy/webhook-notify.sh >> "$LOG_FILE" 2>&1
 
         # Post hook for failed renewals (runs after all renewal attempts)
         cat > /etc/letsencrypt/renewal-hooks/post/webhook-notify-failure.sh <<EOF
@@ -415,6 +495,7 @@ WEBHOOK_URL="$WEBHOOK_URL"
 WEBHOOK_MODE="$WEBHOOK_MODE"
 WEBHOOK_PLATFORM="$WEBHOOK_PLATFORM"
 DOMAIN="$DOMAIN"
+LOG_FILE="$LOG_FILE"
 
 # Check if certificate exists and is about to expire (failed renewal)
 CERT_FILE="/etc/letsencrypt/live/$DOMAIN/cert.pem"
@@ -426,8 +507,7 @@ if [ -f "\$CERT_FILE" ]; then
     
     # If less than 7 days until expiry, we consider the renewal failed
     if [ \$DAYS_LEFT -lt 7 ]; then
-        echo "Certificate has \$DAYS_LEFT days left and renewal likely failed. Sending webhook."
-        echo "Using webhook platform: $WEBHOOK_PLATFORM"
+        echo "Certificate has \$DAYS_LEFT days left and renewal likely failed. Sending webhook." >> "\$LOG_FILE"
         
         if [[ "$WEBHOOK_MODE" == "F" || "$WEBHOOK_MODE" == "B" ]]; then
             case "$WEBHOOK_PLATFORM" in
@@ -439,7 +519,7 @@ if [ -f "\$CERT_FILE" ]; then
                             "description": "Domain: '$DOMAIN'",
                             "color": 16711680
                         }]
-                    }' "$WEBHOOK_URL"
+                    }' "$WEBHOOK_URL" >> "\$LOG_FILE" 2>&1
                     ;;
                 S) # Slack
                     curl -s -X POST -H "Content-Type: application/json" -d '{
@@ -453,7 +533,7 @@ if [ -f "\$CERT_FILE" ]; then
                                 }
                             }
                         ]
-                    }' "$WEBHOOK_URL"
+                    }' "$WEBHOOK_URL" >> "\$LOG_FILE" 2>&1
                     ;;
                 G) # Google Chat
                     curl -s -X POST -H "Content-Type: application/json" -d '{
@@ -470,22 +550,24 @@ if [ -f "\$CERT_FILE" ]; then
                                 }]
                             }]
                         }]
-                    }' "$WEBHOOK_URL"
+                    }' "$WEBHOOK_URL" >> "\$LOG_FILE" 2>&1
                     ;;
             esac
         fi
     fi
 fi
 EOF
-        chmod +x /etc/letsencrypt/renewal-hooks/post/webhook-notify-failure.sh
+        chmod +x /etc/letsencrypt/renewal-hooks/post/webhook-notify-failure.sh >> "$LOG_FILE" 2>&1
+        log_success "Webhook renewal hooks configured"
     fi
 
     # Test renewal
-    if certbot renew --dry-run; then
-        echo -e "${BLUE}Certificate renewal configured successfully${NC}"
+    log_and_print "Testing certificate renewal..."
+    if certbot renew --dry-run >> "$LOG_FILE" 2>&1; then
+        log_success "Certificate renewal configured successfully"
         send_webhook "success" "Certificate renewal system configured successfully for domain: $DOMAIN"
     else
-        echo -e "${BLUE}Certificate renewal test failed${NC}"
+        log_error "Certificate renewal test failed! Check $LOG_FILE for details."
         send_webhook "failure" "Certificate renewal configuration failed for domain: $DOMAIN"
         exit 1
     fi
@@ -506,8 +588,8 @@ main() {
     configure_firewall
     ensure_service_persistence
     
-    echo -e "${BLUE}Setup completed successfully!${NC}"
-    echo -e "${BLUE}Access your site at: https://${DOMAIN}${NC}"
+    log_success "Setup completed successfully!"
+    echo -e "${GREEN}Access your site at: https://${DOMAIN}${NC}"
     
     # Final success webhook
     send_webhook "success" "Full CloudNginx setup completed successfully for domain: $DOMAIN"
@@ -525,8 +607,8 @@ main() {
             S) echo "Slack" ;;
             G) echo "Google Chat" ;;
         esac)"
-        echo -e "   - Webhook URL: $WEBHOOK_URL"
     fi
+    echo -e "\n${YELLOW}Detailed logs available at: ${LOG_FILE}${NC}"
 }
 
 main
