@@ -16,6 +16,7 @@
 - **Automatic Redirects**: Forces HTTPS and handles port redirection
 - **Cloudflare Integration**: Securely stores API credentials
 - **Firewall Configuration**: Automatic UFW setup (if installed)
+- **Webhook Support [Click Here](https://github.com/taslabs-net/CloudflareNginx/wiki/Webhook-Enhanced)**
 
 ## 🛠️ What Problem This Solves
 
@@ -38,24 +39,15 @@ This script automates the complex process of:
 ```
 curl -sLO https://raw.githubusercontent.com/taslabs-net/CloudflareNginx/main/install.sh
 ```
-Download the script with webhook support for Discord, Google Chat, and Slack.  It will also ask if you want it on Successful Renewal Only, Failure Only, or Both (default)
-```
-curl -sLO https://raw.githubusercontent.com/taslabs-net/CloudflareNginx/main/install_webhook.sh
-```
+
 2. Make it executable:
 ```
 chmod +x install.sh
-```
-```
-chmod +x install_webhook.sh
 ```
 
 3. Run as root:
 ```
 sudo ./install.sh
-```
-```
-sudo ./install_webhook.sh
 ```
 
 ## 🖥️ What Happens During Installation
