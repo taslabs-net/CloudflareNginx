@@ -1,5 +1,5 @@
 #!/bin/bash
-# CloudNginx Installer with WebSocket Support, Persistence, and Fixed Webhook Notifications
+# CloudflareNginx Installer with WebSocket Support, Persistence, and Fixed Webhook Notifications
 # With cleaner output (less verbose)
 
 # Configuration
@@ -14,7 +14,7 @@ TMP_DIR=$(mktemp -d)
 WEBHOOK_URL=""
 WEBHOOK_MODE=""
 WEBHOOK_PLATFORM="D"  # Default to Discord
-LOG_FILE="/var/log/cloudnginx-install.log"
+LOG_FILE="/var/log/cloudflarenginx-install.log"
 
 # Create log file and ensure it's writable
 touch "$LOG_FILE" 2>/dev/null || true
@@ -56,7 +56,7 @@ show_header() {
     echo "        Cloudflare Nginx Automated Setup"
     echo "==============================================="
     echo -e "${NC}"
-    log "CloudNginx installation started"
+    log "CloudflareNginx installation started"
 }
 
 check_root() {
@@ -149,7 +149,7 @@ EOF
                 case "$WEBHOOK_PLATFORM" in
                     D) # Discord
                         TEST_PAYLOAD='{
-                            "content": "CloudNginx Webhook Test",
+                            "content": "CloudflareNginx Webhook Test",
                             "embeds": [{
                                 "title": "Test Successful",
                                 "description": "Testing webhook for domain: '"$DOMAIN"'",
@@ -159,7 +159,7 @@ EOF
                         ;;
                     S) # Slack
                         TEST_PAYLOAD='{
-                            "text": "CloudNginx Webhook Test",
+                            "text": "CloudflareNginx Webhook Test",
                             "blocks": [
                                 {
                                     "type": "section",
@@ -173,7 +173,7 @@ EOF
                         ;;
                     G) # Google Chat
                         TEST_PAYLOAD='{
-                            "text": "CloudNginx Webhook Test",
+                            "text": "CloudflareNginx Webhook Test",
                             "cards": [{
                                 "header": {
                                     "title": "Test Successful"
@@ -284,10 +284,10 @@ send_webhook() {
                     ;;
                 G) # Google Chat
                     PAYLOAD='{
-                        "text": "CloudNginx '"$status"' Notification",
+                        "text": "CloudflareNginx '"$status"' Notification",
                         "cards": [{
                             "header": {
-                                "title": "CloudNginx '"$status"' Notification"
+                                "title": "CloudflareNginx '"$status"' Notification"
                             },
                             "sections": [{
                                 "widgets": [{
@@ -445,7 +445,7 @@ if [[ "$WEBHOOK_MODE" == "S" || "$WEBHOOK_MODE" == "B" ]]; then
             curl -s -X POST -H "Content-Type: application/json" -d '{
                 "content": "SSL certificate renewed successfully for domain: '$DOMAIN'",
                 "embeds": [{
-                    "title": "CloudNginx Success Notification",
+                    "title": "CloudflareNginx Success Notification",
                     "description": "Domain: '$DOMAIN'",
                     "color": 65280
                 }]
@@ -453,7 +453,7 @@ if [[ "$WEBHOOK_MODE" == "S" || "$WEBHOOK_MODE" == "B" ]]; then
             ;;
         S) # Slack
             curl -s -X POST -H "Content-Type: application/json" -d '{
-                "text": "CloudNginx Success Notification",
+                "text": "CloudflareNginx Success Notification",
                 "blocks": [
                     {
                         "type": "section",
@@ -467,7 +467,7 @@ if [[ "$WEBHOOK_MODE" == "S" || "$WEBHOOK_MODE" == "B" ]]; then
             ;;
         G) # Google Chat
             curl -s -X POST -H "Content-Type: application/json" -d '{
-                "text": "CloudNginx Success Notification",
+                "text": "CloudflareNginx Success Notification",
                 "cards": [{
                     "header": {
                         "title": "SSL Certificate Renewed"
@@ -515,7 +515,7 @@ if [ -f "\$CERT_FILE" ]; then
                     curl -s -X POST -H "Content-Type: application/json" -d '{
                         "content": "SSL certificate renewal failed for domain: '$DOMAIN'. Certificate will expire in '\$DAYS_LEFT' days",
                         "embeds": [{
-                            "title": "CloudNginx Failure Alert",
+                            "title": "CloudflareNginx Failure Alert",
                             "description": "Domain: '$DOMAIN'",
                             "color": 16711680
                         }]
@@ -523,7 +523,7 @@ if [ -f "\$CERT_FILE" ]; then
                     ;;
                 S) # Slack
                     curl -s -X POST -H "Content-Type: application/json" -d '{
-                        "text": "CloudNginx Failure Alert",
+                        "text": "CloudflareNginx Failure Alert",
                         "blocks": [
                             {
                                 "type": "section",
@@ -537,7 +537,7 @@ if [ -f "\$CERT_FILE" ]; then
                     ;;
                 G) # Google Chat
                     curl -s -X POST -H "Content-Type: application/json" -d '{
-                        "text": "CloudNginx Failure Alert",
+                        "text": "CloudflareNginx Failure Alert",
                         "cards": [{
                             "header": {
                                 "title": "SSL Certificate Renewal Failed"
@@ -592,7 +592,7 @@ main() {
     echo -e "${GREEN}Access your site at: https://${DOMAIN}${NC}"
     
     # Final success webhook
-    send_webhook "success" "Full CloudNginx setup completed successfully for domain: $DOMAIN"
+    send_webhook "success" "Full CloudflareNginx setup completed successfully for domain: $DOMAIN"
     
     # Display important information
     echo -e "\n${BLUE}Important Notes:${NC}"
