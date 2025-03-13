@@ -16,7 +16,7 @@
 - **Automatic Redirects**: Forces HTTPS and handles port redirection
 - **Cloudflare Integration**: Securely stores API credentials
 - **Firewall Configuration**: Automatic UFW setup (if installed)
-- **Webhook Support [Click Here](https://github.com/taslabs-net/CloudflareNginx/wiki/Webhook-Enhanced)**
+- **Webhook Support**
 
 ## 🛠️ What Problem This Solves
 
@@ -35,7 +35,7 @@ This script automates the complex process of:
 
 ## 🔧 Installation
 
-1. Download the script without webhook support:
+1. Download the script with webhook support:
 ```
 curl -sLO https://github.com/taslabs-net/CloudflareNginx/releases/download/webhook/install.sh
 ```
