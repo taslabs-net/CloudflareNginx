@@ -42,12 +42,12 @@ curl -sLO https://github.com/taslabs-net/CloudflareNginx/releases/download/lates
 
 2. Make it executable:
 ```
-chmod +x install.sh
+chmod +x install_webhook.sh
 ```
 
 3. Run as root:
 ```
-sudo ./install.sh
+sudo ./install_webhook.sh
 ```
 
 ## 🖥️ What Happens During Installation
