@@ -37,7 +37,7 @@ This script automates the complex process of:
 
 1. Download the script with webhook support:
 ```
-curl -sLO https://github.com/taslabs-net/CloudflareNginx/releases/download/webhook/install.sh
+curl -sLO https://github.com/taslabs-net/CloudflareNginx/releases/download/latest/install_webhook.sh
 ```
 
 2. Make it executable:
