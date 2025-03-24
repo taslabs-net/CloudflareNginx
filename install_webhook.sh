@@ -327,21 +327,33 @@ generate_ssl() {
         --email "$CF_EMAIL" >> "$LOG_FILE" 2>&1; then
         log_success "SSL certificate generated successfully!"
         send_webhook "success" "SSL certificate generated successfully for domain: $DOMAIN"
+        return 0
     else
         log_error "SSL certificate generation failed!"
         send_webhook "failure" "SSL certificate generation failed for domain: $DOMAIN"
-        exit 1
+        # Ask if user wants to continue setup despite SSL failure
+        ask_question "SSL certificate generation failed! Continue with the setup anyway? (Y/N)" CONTINUE_SSL_FAIL
+        CONTINUE_SSL_FAIL=$(echo "$CONTINUE_SSL_FAIL" | tr '[:lower:]' '[:upper:]')
+        if [[ "$CONTINUE_SSL_FAIL" == "Y" ]]; then
+            log_warning "Continuing setup despite SSL certificate failure"
+            return 1
+        else
+            log_error "Setup aborted due to SSL certificate failure"
+            exit 1
+        fi
     fi
 }
 
 configure_nginx() {
     local DOMAIN=$1
     local PORT=$2
+    local SSL_SUCCESS=$3
     
     log_and_print "Configuring NGINX for ${DOMAIN}..."
     
-    # Create full nginx configuration
-    cat > "/etc/nginx/sites-available/${DOMAIN}" <<EOF
+    if [ "$SSL_SUCCESS" -eq 1 ]; then
+        # Create full nginx configuration with SSL
+        cat > "/etc/nginx/sites-available/${DOMAIN}" <<EOF
 server {
     listen 80;
     server_name ${DOMAIN};
@@ -381,6 +393,29 @@ server {
     }
 }
 EOF
+    else
+        # Create nginx configuration without SSL (HTTP only)
+        cat > "/etc/nginx/sites-available/${DOMAIN}" <<EOF
+server {
+    listen 80;
+    server_name ${DOMAIN};
+    
+    # Proxy configuration
+    location / {
+        proxy_pass http://127.0.0.1:${PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+}
+EOF
+        log_warning "Configured Nginx without SSL due to certificate failure"
+    fi
 
     # Enable site configuration
     ln -sf "/etc/nginx/sites-available/${DOMAIN}" "/etc/nginx/sites-enabled/" >> "$LOG_FILE" 2>&1
@@ -389,7 +424,11 @@ EOF
         log_success "Nginx configured successfully"
     else
         log_error "Nginx configuration failed! Check $LOG_FILE for details."
-        exit 1
+        ask_question "Nginx configuration failed. Continue with the remaining setup? (Y/N)" CONTINUE_NGINX_FAIL
+        CONTINUE_NGINX_FAIL=$(echo "$CONTINUE_NGINX_FAIL" | tr '[:lower:]' '[:upper:]')
+        if [[ "$CONTINUE_NGINX_FAIL" != "Y" ]]; then
+            exit 1
+        fi
     fi
 }
 
@@ -564,15 +603,16 @@ EOF
         log_success "Webhook renewal hooks configured"
     fi
 
-    # Test renewal
+    # Test renewal - don't fail the script if this fails
     log_and_print "Testing certificate renewal..."
     if certbot renew --dry-run >> "$LOG_FILE" 2>&1; then
         log_success "Certificate renewal configured successfully"
         send_webhook "success" "Certificate renewal system configured successfully for domain: $DOMAIN"
+        return 0
     else
-        log_error "Certificate renewal test failed! Check $LOG_FILE for details."
-        send_webhook "failure" "Certificate renewal configuration failed for domain: $DOMAIN"
-        exit 1
+        log_warning "Certificate renewal test failed! Check $LOG_FILE for details. Continuing setup anyway."
+        send_webhook "failure" "Certificate renewal configuration failed for domain: $DOMAIN, but setup will continue"
+        return 1
     fi
 }
 
@@ -581,26 +621,61 @@ main() {
     check_root
     handle_cloudflare_credentials
     install_core_dependencies
-    generate_ssl
-    setup_certbot_renewal
+    
+    # Track SSL success/failure
+    SSL_SUCCESS=1
+    if ! generate_ssl; then
+        SSL_SUCCESS=0
+    fi
+    
+    # Setup renewal hooks regardless of SSL success
+    RENEWAL_SUCCESS=1
+    if ! setup_certbot_renewal; then
+        RENEWAL_SUCCESS=0
+    fi
     
     ask_question "Enter your application port (default: 3000)" PORT
     PORT=${PORT:-3000}
     
-    configure_nginx "$DOMAIN" "$PORT"
+    # Configure nginx with SSL_SUCCESS status
+    configure_nginx "$DOMAIN" "$PORT" "$SSL_SUCCESS"
     configure_firewall
     ensure_service_persistence
     
-    log_success "Setup completed successfully!"
-    echo -e "${GREEN}Access your site at: https://${DOMAIN}${NC}"
+    # Final status message
+    log_success "Setup completed!"
+    
+    if [ "$SSL_SUCCESS" -eq 1 ]; then
+        echo -e "${GREEN}Access your site at: https://${DOMAIN}${NC}"
+    else
+        echo -e "${YELLOW}Access your site at: http://${DOMAIN}${NC}"
+        echo -e "${YELLOW}Note: SSL was not configured successfully.${NC}"
+    fi
+    
+    if [ "$RENEWAL_SUCCESS" -eq 0 ]; then
+        echo -e "${YELLOW}Certificate renewal test failed, but setup continued.${NC}"
+    fi
     
     # Final success webhook
-    send_webhook "success" "Full CloudflareNginx setup completed successfully for domain: $DOMAIN"
+    if [ "$SSL_SUCCESS" -eq 1 ]; then
+        send_webhook "success" "Full CloudflareNginx setup completed successfully for domain: $DOMAIN"
+    else
+        send_webhook "warning" "CloudflareNginx setup completed with warnings for domain: $DOMAIN (SSL issues encountered)"
+    fi
     
     # Display important information
     echo -e "\n${BLUE}Important Notes:${NC}"
     echo -e "1. Your Cloudflare credentials are stored securely at ${CLOUDFLARE_CRED_PATH}"
-    echo -e "2. SSL certificates will auto-renew before expiration"
+    
+    if [ "$SSL_SUCCESS" -eq 1 ]; then
+        echo -e "2. SSL certificates will auto-renew before expiration"
+        if [ "$RENEWAL_SUCCESS" -eq 0 ]; then
+            echo -e "   - Warning: Renewal test failed, but this might be a temporary issue"
+        fi
+    else
+        echo -e "2. SSL certificates were not configured successfully"
+    fi
+    
     echo -e "3. Nginx is configured to start automatically on boot"
     echo -e "4. Firewall rules (if UFW is present) are persistent"
     if [ -n "$WEBHOOK_URL" ]; then
