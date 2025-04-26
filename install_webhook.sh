@@ -638,8 +638,28 @@ main() {
         RENEWAL_SUCCESS=0
     fi
     
+    # Accept port from first script argument, otherwise prompt
+    if [ -n "${1:-}" ]; then
+        PORT="$1"
+        log_and_print "Using application port from argument: $PORT"
+    else
     ask_question "Enter your application port (default: 3000)" PORT
-    PORT=${PORT:-3000}
+        PORT=${PORT:-3000}
+    fi
+
+    # Validate the port is a number
+    if ! [[ "$PORT" =~ ^[0-9]+$ ]]; then
+        log_error "Invalid port number. Must be a number."
+        exit 1
+    fi
+    # Check if port is within valid range
+    if (( PORT < 1 || PORT > 65535 )); then
+        log_error "Invalid port number. Must be between 1 and 65535."
+        exit 1
+    fi
+
+
+
     
     # Configure nginx with SSL_SUCCESS status
     configure_nginx "$DOMAIN" "$PORT" "$SSL_SUCCESS"
