@@ -1,6 +1,6 @@
 #!/bin/bash
-# CloudflareNginx Installer v2.3
-# Complete version with webhook prompting and robust error handling
+# CloudflareNginx Installer v2.4
+# Non-interactive version with webhook support and robust error handling
 
 # Configuration
 BLUE='\033[0;34m'
@@ -22,7 +22,6 @@ WEBHOOK_MODE="B"
 WEBHOOK_PLATFORM="D"
 SSL_SUCCESS=0
 RENEWAL_SUCCESS=0
-NON_INTERACTIVE=0
 QUIET_MODE=0
 
 # Cleanup function
@@ -93,61 +92,12 @@ validate_webhook_url() {
     return 0
 }
 
-# User interaction functions
-ask_question() {
-    local question=$1
-    local var_name=$2
-    local default_value=${3:-}
-    local hide_input=${4:-0}
-
-    [ "$NON_INTERACTIVE" -eq 1 ] && return 0
-
-    echo -e "${BLUE}"
-    if [ "$hide_input" -eq 1 ]; then
-        read -r -s -p "$question [${default_value}]: " $var_name
-    else
-        read -r -p "$question [${default_value}]: " $var_name
-    fi
-    echo -e "${NC}"
-
-    eval "[ -z \"\$$var_name\" ] && $var_name=\"$default_value\""
-    log "User input for '$question': ${!var_name}"
-}
-
-ask_question_with_validation() {
-    local question=$1
-    local var_name=$2
-    local validation_func=$3
-    local default_value=${4:-}
-    local hide_input=${5:-0}
-    local max_attempts=3
-    local attempt=0
-
-    [ "$NON_INTERACTIVE" -eq 1 ] && return 0
-
-    while (( attempt < max_attempts )); do
-        ask_question "$question" "$var_name" "$default_value" "$hide_input"
-        
-        if $validation_func "${!var_name}"; then
-            return 0
-        fi
-        
-        ((attempt++))
-        if (( attempt < max_attempts )); then
-            echo -e "${YELLOW}Please try again (attempt $attempt of $max_attempts)${NC}"
-        fi
-    done
-
-    log_error "Maximum attempts reached for question: $question"
-    return 1
-}
-
 show_header() {
     [ "$QUIET_MODE" -eq 1 ] && return
     clear
     echo -e "${BLUE}"
     echo "==============================================="
-    echo "     Cloudflare Nginx Automated Setup v2.3     "
+    echo "     Cloudflare Nginx Automated Setup v2.4     "
     echo "==============================================="
     echo -e "${NC}"
     log "Installation started"
@@ -165,42 +115,17 @@ show_help() {
     echo "  -m, --webhook-mode MODE   Set webhook mode (S=Success, F=Failure, B=Both)"
     echo "  -t, --webhook-type TYPE   Set webhook type (D=Discord, S=Slack, G=Google Chat)"
     echo "  -c, --config FILE         Use configuration file"
-    echo "  -n, --non-interactive     Run in non-interactive mode"
     echo "  -q, --quiet               Run in quiet mode (minimal output)"
     echo "  -h, --help                Show this help message"
     echo
     echo "Examples:"
-    echo "  Interactive mode:        $0"
-    echo "  Non-interactive mode:    $0 --domain example.com --port 3000 --email user@example.com --key abc123"
-    echo "  With webhook:           $0 --domain example.com --webhook \"https://discord.com/webhook\""
+    echo "  Basic usage:            $0 --domain example.com --port 3000 --email user@example.com --key abc123"
+    echo "  With webhook:           $0 --domain example.com --webhook \"https://discord.com/webhook\" --webhook-type D"
+    echo "  Quiet mode:             $0 --domain example.com --email user@example.com --key abc123 --quiet"
     exit 0
 }
 
 # Configuration management
-load_config() {
-    [ -f "$CONFIG_FILE" ] || {
-        log "No configuration file found at $CONFIG_FILE"
-        return 1
-    }
-    
-    log_and_print "Loading configuration from $CONFIG_FILE"
-    source "$CONFIG_FILE" || {
-        log_error "Failed to load configuration file"
-        return 1
-    }
-    
-    # Validate loaded configuration
-    validate_domain "$DOMAIN" || return 1
-    validate_port "$PORT" || return 1
-    validate_email "$CF_EMAIL" || return 1
-    [ -n "$CF_API_KEY" ] || {
-        log_error "Cloudflare API key not set in config"
-        return 1
-    }
-    
-    return 0
-}
-
 save_config() {
     log_and_print "Saving configuration to $CONFIG_FILE"
     
@@ -675,18 +600,6 @@ main() {
                 WEBHOOK_PLATFORM="${2^^}" # Convert to uppercase
                 shift 2
                 ;;
-            -c|--config)
-                CONFIG_FILE="$2"
-                shift 2
-                if ! load_config; then
-                    echo -e "${RED}Failed to load configuration file${NC}" >&2
-                    exit 1
-                fi
-                ;;
-            -n|--non-interactive)
-                NON_INTERACTIVE=1
-                shift
-                ;;
             -q|--quiet)
                 QUIET_MODE=1
                 shift
@@ -706,86 +619,37 @@ main() {
     
     # Validate required parameters
     if [ -z "$DOMAIN" ]; then
-        if [ "$NON_INTERACTIVE" -eq 1 ]; then
-            log_error "Domain is required in non-interactive mode"
-            exit 1
-        fi
-        ask_question_with_validation "Enter your domain name (e.g., example.com)" DOMAIN validate_domain || exit 1
+        log_error "Domain is required"
+        exit 1
     else
         validate_domain "$DOMAIN" || exit 1
     fi
     
     if [ -z "$PORT" ]; then
-        if [ "$NON_INTERACTIVE" -eq 1 ]; then
-            PORT=3000
-            log_and_print "Using default port 3000 in non-interactive mode"
-        else
-            ask_question_with_validation "Enter your application port (1-65535)" PORT validate_port "3000" || exit 1
-        fi
+        PORT=3000
+        log_and_print "Using default port 3000"
     else
         validate_port "$PORT" || exit 1
     fi
     
     if [ -z "$CF_EMAIL" ]; then
-        if [ "$NON_INTERACTIVE" -eq 1 ]; then
-            log_error "Cloudflare email is required in non-interactive mode"
-            exit 1
-        fi
-        ask_question_with_validation "Enter your Cloudflare email" CF_EMAIL validate_email || exit 1
+        log_error "Cloudflare email is required"
+        exit 1
     else
         validate_email "$CF_EMAIL" || exit 1
     fi
     
     if [ -z "$CF_API_KEY" ]; then
-        if [ "$NON_INTERACTIVE" -eq 1 ]; then
-            log_error "Cloudflare API key is required in non-interactive mode"
-            exit 1
-        fi
-        ask_question_with_validation "Enter your Cloudflare API key" CF_API_KEY : "1" || exit 1
+        log_error "Cloudflare API key is required"
+        exit 1
     fi
 
-    # Webhook configuration - FIXED SECTION
-    if [ -z "$WEBHOOK_URL" ] && [ "$NON_INTERACTIVE" -eq 0 ]; then
-        ask_question "Do you want to configure webhook notifications? (y/N)" WEBHOOK_CHOICE "N"
-        WEBHOOK_CHOICE="${WEBHOOK_CHOICE:-N}"  # Ensure default is N if empty
-        
-        if [[ "${WEBHOOK_CHOICE,,}" == "y" ]]; then
-            # Ask for webhook platform
-            ask_question "Webhook platform? (D)iscord, (S)lack, (G)oogle Chat" WEBHOOK_PLATFORM "D"
-            WEBHOOK_PLATFORM="${WEBHOOK_PLATFORM:-D}"  # Default to Discord
-            WEBHOOK_PLATFORM="${WEBHOOK_PLATFORM^^}"   # Convert to uppercase
-            
-            # Ask for notification mode
-            ask_question "Notification mode? (S)uccess, (F)ailure, (B)oth" WEBHOOK_MODE "B"
-            WEBHOOK_MODE="${WEBHOOK_MODE:-B}"  # Default to Both
-            WEBHOOK_MODE="${WEBHOOK_MODE^^}"   # Convert to uppercase
-            
-            # Ask for webhook URL with validation
-            while true; do
-                ask_question "Enter your webhook URL" WEBHOOK_URL
-                if [ -z "$WEBHOOK_URL" ]; then
-                    echo -e "${YELLOW}Webhook URL cannot be empty${NC}"
-                elif validate_webhook_url "$WEBHOOK_URL"; then
-                    break
-                fi
-            done
-            
-            # Test webhook
-            log_and_print "Testing webhook configuration..."
-            if curl -s -o /dev/null -w "%{http_code}" "$WEBHOOK_URL" | grep -q "200"; then
-                log_success "Webhook test successful"
-            else
-                log_warning "Webhook test failed (URL might still work)"
-                ask_question "Continue despite webhook test failure? (Y/n)" CONTINUE "Y"
-                CONTINUE="${CONTINUE:-Y}"
-                [[ "${CONTINUE,,}" != "y" ]] && exit 1
-            fi
-        else
-            # Explicitly clear webhook settings if user chose no
-            WEBHOOK_URL=""
-            WEBHOOK_MODE="B"
-            WEBHOOK_PLATFORM="D"
-        fi
+    # Validate webhook URL if provided
+    if [ -n "$WEBHOOK_URL" ]; then
+        validate_webhook_url "$WEBHOOK_URL" || {
+            log_error "Invalid webhook URL"
+            exit 1
+        }
     fi
     
     # Save configuration
@@ -809,12 +673,8 @@ main() {
     if generate_ssl_certificate; then
         SSL_SUCCESS=1
     else
-        if [ "$NON_INTERACTIVE" -eq 1 ]; then
-            log_error "SSL generation failed in non-interactive mode"
-            exit 1
-        fi
-        ask_question "SSL generation failed. Continue without SSL? (Y/n)" CONTINUE "Y"
-        [[ "${CONTINUE,,}" != "y" ]] && exit 1
+        log_error "SSL generation failed"
+        exit 1
     fi
     
     # Configure Nginx
@@ -846,12 +706,6 @@ main() {
     
     # Show summary
     show_summary
-    
-    # Final check
-    if [ "$SSL_SUCCESS" -eq 0 ]; then
-        echo -e "\n${YELLOW}Warning: SSL certificate was not installed.${NC}"
-        echo -e "You can try running the script again to generate the SSL certificate."
-    fi
     
     log_success "Installation completed successfully"
     exit 0
