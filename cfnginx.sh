@@ -21,6 +21,7 @@ WEBHOOK_URL=""
 WEBHOOK_MODE="B"
 WEBHOOK_PLATFORM="D"
 SSL_SUCCESS=0
+# Explicitly set QUIET_MODE with explicit type
 QUIET_MODE=0
 
 # Cleanup function
@@ -34,23 +35,32 @@ log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
 }
 
+# Modified logging functions with simplified conditions
 log_and_print() {
-    [[ $QUIET_MODE -eq 0 ]] && echo -e "${BLUE}$1${NC}"
+    if [ "$QUIET_MODE" != "1" ]; then
+        echo -e "${BLUE}$1${NC}"
+    fi
     log "INFO: $1"
 }
 
 log_success() {
-    [[ $QUIET_MODE -eq 0 ]] && echo -e "${GREEN}✓ $1${NC}"
+    if [ "$QUIET_MODE" != "1" ]; then
+        echo -e "${GREEN}✓ $1${NC}"
+    fi
     log "SUCCESS: $1"
 }
 
 log_warning() {
-    [[ $QUIET_MODE -eq 0 ]] && echo -e "${YELLOW}⚠ $1${NC}"
+    if [ "$QUIET_MODE" != "1" ]; then
+        echo -e "${YELLOW}⚠ $1${NC}"
+    fi
     log "WARNING: $1"
 }
 
 log_error() {
-    [[ $QUIET_MODE -eq 0 ]] && echo -e "${RED}✗ $1${NC}"
+    if [ "$QUIET_MODE" != "1" ]; then
+        echo -e "${RED}✗ $1${NC}"
+    fi
     log "ERROR: $1"
 }
 
@@ -92,13 +102,14 @@ validate_webhook_url() {
 }
 
 show_header() {
-    [[ $QUIET_MODE -eq 1 ]] && return
-    clear
-    echo -e "${BLUE}"
-    echo "==============================================="
-    echo "     Cloudflare Nginx Automated Setup v2.4     "
-    echo "==============================================="
-    echo -e "${NC}"
+    if [ "$QUIET_MODE" != "1" ]; then
+        clear
+        echo -e "${BLUE}"
+        echo "==============================================="
+        echo "     Cloudflare Nginx Automated Setup v2.4     "
+        echo "==============================================="
+        echo -e "${NC}"
+    fi
     log "Installation started"
 }
 
@@ -387,7 +398,10 @@ setup_firewall() {
 }
 
 setup_webhooks() {
-    [[ -z "$WEBHOOK_URL" ]] && return 0
+    # Skip if webhook URL not provided
+    if [ -z "$WEBHOOK_URL" ]; then
+        return 0
+    fi
     
     log_and_print "Configuring webhook notifications..."
     
@@ -497,7 +511,10 @@ EOF
 }
 
 show_summary() {
-    [[ $QUIET_MODE -eq 1 ]] && return
+    # Skip in quiet mode
+    if [ "$QUIET_MODE" = "1" ]; then
+        return
+    fi
     
     echo -e "\n${GREEN}=== Installation Summary ===${NC}"
     echo -e "Domain: ${BLUE}$DOMAIN${NC}"
@@ -587,7 +604,7 @@ main() {
                 shift 2
                 ;;
             -q|--quiet)
-                QUIET_MODE=1
+                QUIET_MODE="1"
                 shift
                 ;;
             -h|--help)
