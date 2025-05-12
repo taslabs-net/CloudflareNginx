@@ -1,6 +1,6 @@
 #!/bin/bash
-# CloudflareNginx Installer v2.0
-# Enhanced with better error handling, configuration options, and user experience
+# CloudflareNginx Installer v2.2
+# Fully robust version with comprehensive error handling and user guidance
 
 # Configuration
 BLUE='\033[0;34m'
@@ -14,7 +14,7 @@ TMP_DIR=$(mktemp -d)
 
 # Initialize variables
 DOMAIN=""
-PORT="3000"
+PORT=""
 CF_EMAIL=""
 CF_API_KEY=""
 WEBHOOK_URL=""
@@ -31,35 +31,36 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Logging functions
+# Enhanced logging functions
 log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
 }
 
 log_and_print() {
     [ "$QUIET_MODE" -eq 0 ] && echo -e "${BLUE}$1${NC}"
-    log "$1"
+    log "INFO: $1"
 }
 
 log_success() {
     [ "$QUIET_MODE" -eq 0 ] && echo -e "${GREEN}✓ $1${NC}"
-    log "[SUCCESS] $1"
+    log "SUCCESS: $1"
 }
 
 log_warning() {
     [ "$QUIET_MODE" -eq 0 ] && echo -e "${YELLOW}⚠ $1${NC}"
-    log "[WARNING] $1"
+    log "WARNING: $1"
 }
 
 log_error() {
     [ "$QUIET_MODE" -eq 0 ] && echo -e "${RED}✗ $1${NC}"
-    log "[ERROR] $1"
+    log "ERROR: $1"
 }
 
-# Helper functions
+# Validation functions
 validate_domain() {
     [[ "$1" =~ ^([a-zA-Z0-9](-?[a-zA-Z0-9])*\.)+[a-zA-Z]{2,}$ ]] || {
         log_error "Invalid domain format: $1"
+        echo -e "${RED}Please enter a valid domain name (e.g., example.com)${NC}" >&2
         return 1
     }
     return 0
@@ -67,7 +68,8 @@ validate_domain() {
 
 validate_port() {
     [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 && $1 <= 65535 )) || {
-        log_error "Invalid port number: $1 (must be 1-65535)"
+        log_error "Invalid port number: $1"
+        echo -e "${RED}Port must be a number between 1 and 65535${NC}" >&2
         return 1
     }
     return 0
@@ -76,51 +78,78 @@ validate_port() {
 validate_email() {
     [[ "$1" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]] || {
         log_error "Invalid email format: $1"
+        echo -e "${RED}Please enter a valid email address${NC}" >&2
         return 1
     }
     return 0
 }
 
-ask_question() {
+validate_webhook_url() {
+    [[ "$1" =~ ^https?://.+ ]] || {
+        log_error "Invalid webhook URL: $1"
+        echo -e "${RED}Webhook URL must start with http:// or https://${NC}" >&2
+        return 1
+    }
+    return 0
+}
+
+# User interaction functions
+ask_question_with_validation() {
     local question=$1
     local var_name=$2
-    local default_value=${3:-}
-    local hide_input=${4:-0}
+    local validation_func=$3
+    local default_value=${4:-}
+    local hide_input=${5:-0}
+    local max_attempts=3
+    local attempt=0
 
     [ "$NON_INTERACTIVE" -eq 1 ] && return 0
 
-    echo -e "${BLUE}"
-    if [ "$hide_input" -eq 1 ]; then
-        read -r -s -p "$question [${default_value}]: " $var_name
-    else
-        read -r -p "$question [${default_value}]: " $var_name
-    fi
-    echo -e "${NC}"
+    while (( attempt < max_attempts )); do
+        echo -e "${BLUE}"
+        if [ "$hide_input" -eq 1 ]; then
+            read -r -s -p "$question [${default_value}]: " $var_name
+        else
+            read -r -p "$question [${default_value}]: " $var_name
+        fi
+        echo -e "${NC}"
 
-    eval "[ -z \"\$$var_name\" ] && $var_name=\"$default_value\""
-    log "User input for '$question': ${!var_name}"
+        eval "[ -z \"\$$var_name\" ] && $var_name=\"$default_value\""
+        
+        if $validation_func "${!var_name}"; then
+            log "User input for '$question': ${!var_name}"
+            return 0
+        fi
+        
+        ((attempt++))
+        if (( attempt < max_attempts )); then
+            echo -e "${YELLOW}Please try again (attempt $attempt of $max_attempts)${NC}"
+        fi
+    done
+
+    log_error "Maximum attempts reached for question: $question"
+    return 1
 }
 
-# Core functions
 show_header() {
     [ "$QUIET_MODE" -eq 1 ] && return
     clear
     echo -e "${BLUE}"
     echo "==============================================="
-    echo "     Cloudflare Nginx Automated Setup v2.0     "
+    echo "     Cloudflare Nginx Automated Setup v2.2     "
     echo "==============================================="
     echo -e "${NC}"
-    log "CloudflareNginx installation started"
+    log "Installation started"
 }
 
 show_help() {
     echo "Usage: $0 [options]"
     echo
     echo "Options:"
-    echo "  -d, --domain DOMAIN       Set the domain name"
+    echo "  -d, --domain DOMAIN       Set the domain name (required)"
     echo "  -p, --port PORT           Set the application port (default: 3000)"
-    echo "  -e, --email EMAIL         Set the Cloudflare email"
-    echo "  -k, --key API_KEY         Set the Cloudflare API key"
+    echo "  -e, --email EMAIL         Set the Cloudflare email (required)"
+    echo "  -k, --key API_KEY         Set the Cloudflare API key (required)"
     echo "  -w, --webhook URL         Set the webhook URL"
     echo "  -m, --webhook-mode MODE   Set webhook mode (S=Success, F=Failure, B=Both)"
     echo "  -t, --webhook-type TYPE   Set webhook type (D=Discord, S=Slack, G=Google Chat)"
@@ -129,11 +158,19 @@ show_help() {
     echo "  -q, --quiet               Run in quiet mode (minimal output)"
     echo "  -h, --help                Show this help message"
     echo
+    echo "Examples:"
+    echo "  Interactive mode:        $0"
+    echo "  Non-interactive mode:    $0 --domain example.com --port 3000 --email user@example.com --key abc123"
+    echo "  With webhook:           $0 --domain example.com --webhook \"https://discord.com/webhook\""
     exit 0
 }
 
+# Configuration management
 load_config() {
-    [ -f "$CONFIG_FILE" ] || return 1
+    [ -f "$CONFIG_FILE" ] || {
+        log "No configuration file found at $CONFIG_FILE"
+        return 1
+    }
     
     log_and_print "Loading configuration from $CONFIG_FILE"
     source "$CONFIG_FILE" || {
@@ -155,6 +192,13 @@ load_config() {
 
 save_config() {
     log_and_print "Saving configuration to $CONFIG_FILE"
+    
+    # Create directory if it doesn't exist
+    mkdir -p "$(dirname "$CONFIG_FILE")" || {
+        log_error "Failed to create directory for config file"
+        return 1
+    }
+    
     cat > "$CONFIG_FILE" <<EOF
 # CloudflareNginx Configuration
 DOMAIN="$DOMAIN"
@@ -166,10 +210,16 @@ WEBHOOK_MODE="$WEBHOOK_MODE"
 WEBHOOK_PLATFORM="$WEBHOOK_PLATFORM"
 EOF
     
-    chmod 600 "$CONFIG_FILE"
-    log_success "Configuration saved"
+    chmod 600 "$CONFIG_FILE" || {
+        log_error "Failed to set permissions on config file"
+        return 1
+    }
+    
+    log_success "Configuration saved successfully"
+    return 0
 }
 
+# Installation functions
 install_dependencies() {
     log_and_print "Installing required dependencies..."
     
@@ -181,13 +231,17 @@ install_dependencies() {
         openssl
     )
     
-    apt-get update -qq >> "$LOG_FILE" 2>&1
+    if ! apt-get update -qq >> "$LOG_FILE" 2>&1; then
+        log_error "Failed to update package lists"
+        return 1
+    fi
+    
     if ! apt-get install -y -qq "${dependencies[@]}" >> "$LOG_FILE" 2>&1; then
         log_error "Failed to install dependencies"
         return 1
     fi
     
-    log_success "Dependencies installed"
+    log_success "Dependencies installed successfully"
     return 0
 }
 
@@ -202,6 +256,7 @@ setup_cloudflare_credentials() {
     }
     
     cat > "$cloudflare_cred_path" <<EOF
+# Cloudflare API credentials
 dns_cloudflare_email = ${CF_EMAIL}
 dns_cloudflare_api_key = ${CF_API_KEY}
 EOF
@@ -211,7 +266,7 @@ EOF
         return 1
     }
     
-    log_success "Cloudflare credentials configured"
+    log_success "Cloudflare credentials configured successfully"
     return 0
 }
 
@@ -228,6 +283,7 @@ generate_ssl_certificate() {
         return 0
     else
         log_error "SSL certificate generation failed"
+        echo -e "${YELLOW}Check /var/log/letsencrypt/letsencrypt.log for details${NC}"
         return 1
     fi
 }
@@ -243,7 +299,9 @@ configure_nginx() {
     local nginx_config="/etc/nginx/sites-available/$domain"
     
     if [ "$ssl_success" -eq 1 ]; then
+        log_and_print "Creating Nginx configuration with SSL"
         cat > "$nginx_config" <<EOF
+# HTTPS Configuration for $domain
 server {
     listen 80;
     server_name $domain;
@@ -254,17 +312,27 @@ server {
     listen 443 ssl http2;
     server_name $domain;
 
+    # SSL Configuration
     ssl_certificate /etc/letsencrypt/live/$domain/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/$domain/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers on;
-    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+    ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
     ssl_session_timeout 1d;
-    ssl_session_cache shared:MozSSL:10m;
+    ssl_session_cache shared:SSL:10m;
     ssl_session_tickets off;
     ssl_stapling on;
     ssl_stapling_verify on;
+    resolver 1.1.1.1 8.8.8.8 valid=300s;
+    resolver_timeout 5s;
 
+    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN";
+    add_header X-Content-Type-Options "nosniff";
+    add_header X-XSS-Protection "1; mode=block";
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload";
+
+    # Proxy configuration
     location / {
         proxy_pass http://127.0.0.1:$port;
         proxy_http_version 1.1;
@@ -276,15 +344,36 @@ server {
         proxy_set_header X-Forwarded-Proto \$scheme;
         proxy_cache_bypass \$http_upgrade;
         proxy_buffering off;
+        
+        # Timeout settings
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+        send_timeout 60s;
+    }
+
+    # Block access to hidden files
+    location ~ /\. {
+        deny all;
+        access_log off;
+        log_not_found off;
     }
 }
 EOF
     else
+        log_and_print "Creating Nginx configuration without SSL"
         cat > "$nginx_config" <<EOF
+# HTTP Configuration for $domain
 server {
     listen 80;
     server_name $domain;
 
+    # Basic security headers
+    add_header X-Frame-Options "SAMEORIGIN";
+    add_header X-Content-Type-Options "nosniff";
+    add_header X-XSS-Protection "1; mode=block";
+
+    # Proxy configuration
     location / {
         proxy_pass http://127.0.0.1:$port;
         proxy_http_version 1.1;
@@ -295,6 +384,19 @@ server {
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
         proxy_cache_bypass \$http_upgrade;
+        
+        # Timeout settings
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+        send_timeout 60s;
+    }
+
+    # Block access to hidden files
+    location ~ /\. {
+        deny all;
+        access_log off;
+        log_not_found off;
     }
 }
 EOF
@@ -306,16 +408,18 @@ EOF
         return 1
     }
     
-    # Test and reload Nginx
+    # Test configuration
     if ! nginx -t >> "$LOG_FILE" 2>&1; then
         log_error "Nginx configuration test failed"
+        echo -e "${YELLOW}Check /var/log/nginx/error.log for details${NC}"
         return 1
     fi
     
-    systemctl reload nginx >> "$LOG_FILE" 2>&1 || {
+    # Reload Nginx
+    if ! systemctl reload nginx >> "$LOG_FILE" 2>&1; then
         log_error "Failed to reload Nginx"
         return 1
-    }
+    fi
     
     log_success "Nginx configured successfully"
     return 0
@@ -329,11 +433,21 @@ setup_firewall() {
         return 0
     fi
     
+    # Enable UFW if not already enabled
+    if ! ufw status | grep -q "Status: active"; then
+        log_and_print "Enabling UFW firewall"
+        echo "y" | ufw enable >> "$LOG_FILE" 2>&1 || {
+            log_error "Failed to enable UFW"
+            return 1
+        }
+    fi
+    
+    # Allow HTTP/HTTPS
     ufw allow 80/tcp >> "$LOG_FILE" 2>&1
     ufw allow 443/tcp >> "$LOG_FILE" 2>&1
     ufw reload >> "$LOG_FILE" 2>&1
     
-    log_success "Firewall configured"
+    log_success "Firewall configured successfully"
     return 0
 }
 
@@ -342,6 +456,13 @@ setup_webhooks() {
     
     log_and_print "Configuring webhook notifications..."
     
+    # Validate webhook URL
+    if ! validate_webhook_url "$WEBHOOK_URL"; then
+        log_warning "Invalid webhook URL provided, skipping webhook setup"
+        return 0
+    fi
+    
+    # Create renewal hooks directory
     mkdir -p /etc/letsencrypt/renewal-hooks/{deploy,post} || {
         log_error "Failed to create renewal hook directories"
         return 1
@@ -350,33 +471,40 @@ setup_webhooks() {
     # Deploy hook (successful renewal)
     cat > /etc/letsencrypt/renewal-hooks/deploy/webhook-notify.sh <<EOF
 #!/bin/bash
+# Webhook notification for successful certificate renewal
+
 WEBHOOK_URL="$WEBHOOK_URL"
 WEBHOOK_MODE="$WEBHOOK_MODE"
 WEBHOOK_PLATFORM="$WEBHOOK_PLATFORM"
 DOMAIN="$DOMAIN"
 
+send_discord_webhook() {
+    local message="SSL certificate renewed successfully for \$DOMAIN"
+    curl -s -X POST -H "Content-Type: application/json" \
+    -d '{"content": "'"\$message"'", "embeds": [{"title": "Certificate Renewal", "description": "Domain: '\$DOMAIN'", "color": 65280}]}' \
+    "\$WEBHOOK_URL" >/dev/null 2>&1
+}
+
+send_slack_webhook() {
+    local message="SSL certificate renewed successfully for \$DOMAIN"
+    curl -s -X POST -H "Content-Type: application/json" \
+    -d '{"text": "'"\$message"'"}' \
+    "\$WEBHOOK_URL" >/dev/null 2>&1
+}
+
+send_googlechat_webhook() {
+    local message="SSL certificate renewed successfully for \$DOMAIN"
+    curl -s -X POST -H "Content-Type: application/json" \
+    -d '{"text": "'"\$message"'"}' \
+    "\$WEBHOOK_URL" >/dev/null 2>&1
+}
+
 if [[ "\$WEBHOOK_MODE" =~ [SsBb] ]]; then
     case "\$WEBHOOK_PLATFORM" in
-        D|d)
-            curl -s -X POST -H "Content-Type: application/json" -d '{
-                "content": "SSL certificate renewed successfully for $DOMAIN",
-                "embeds": [{
-                    "title": "Certificate Renewal",
-                    "description": "Domain: $DOMAIN",
-                    "color": 65280
-                }]
-            }' "\$WEBHOOK_URL" >/dev/null 2>&1
-            ;;
-        S|s)
-            curl -s -X POST -H "Content-Type: application/json" -d '{
-                "text": "SSL certificate renewed successfully for $DOMAIN"
-            }' "\$WEBHOOK_URL" >/dev/null 2>&1
-            ;;
-        G|g)
-            curl -s -X POST -H "Content-Type: application/json" -d '{
-                "text": "SSL certificate renewed successfully for $DOMAIN"
-            }' "\$WEBHOOK_URL" >/dev/null 2>&1
-            ;;
+        D|d) send_discord_webhook ;;
+        S|s) send_slack_webhook ;;
+        G|g) send_googlechat_webhook ;;
+        *) send_discord_webhook ;; # Default to Discord
     esac
 fi
 EOF
@@ -384,44 +512,52 @@ EOF
     # Post hook (failed renewal)
     cat > /etc/letsencrypt/renewal-hooks/post/webhook-notify-failure.sh <<EOF
 #!/bin/bash
+# Webhook notification for failed certificate renewal
+
 WEBHOOK_URL="$WEBHOOK_URL"
 WEBHOOK_MODE="$WEBHOOK_MODE"
 WEBHOOK_PLATFORM="$WEBHOOK_PLATFORM"
 DOMAIN="$DOMAIN"
 
+send_discord_webhook() {
+    local message="SSL certificate renewal FAILED for \$DOMAIN"
+    curl -s -X POST -H "Content-Type: application/json" \
+    -d '{"content": "'"\$message"'", "embeds": [{"title": "Certificate Renewal Failed", "description": "Domain: '\$DOMAIN'", "color": 16711680}]}' \
+    "\$WEBHOOK_URL" >/dev/null 2>&1
+}
+
+send_slack_webhook() {
+    local message="SSL certificate renewal FAILED for \$DOMAIN"
+    curl -s -X POST -H "Content-Type: application/json" \
+    -d '{"text": "'"\$message"'"}' \
+    "\$WEBHOOK_URL" >/dev/null 2>&1
+}
+
+send_googlechat_webhook() {
+    local message="SSL certificate renewal FAILED for \$DOMAIN"
+    curl -s -X POST -H "Content-Type: application/json" \
+    -d '{"text": "'"\$message"'"}' \
+    "\$WEBHOOK_URL" >/dev/null 2>&1
+}
+
 if [[ "\$WEBHOOK_MODE" =~ [FfBb] ]]; then
     case "\$WEBHOOK_PLATFORM" in
-        D|d)
-            curl -s -X POST -H "Content-Type: application/json" -d '{
-                "content": "SSL certificate renewal failed for $DOMAIN",
-                "embeds": [{
-                    "title": "Certificate Renewal Failed",
-                    "description": "Domain: $DOMAIN",
-                    "color": 16711680
-                }]
-            }' "\$WEBHOOK_URL" >/dev/null 2>&1
-            ;;
-        S|s)
-            curl -s -X POST -H "Content-Type: application/json" -d '{
-                "text": "SSL certificate renewal failed for $DOMAIN"
-            }' "\$WEBHOOK_URL" >/dev/null 2>&1
-            ;;
-        G|g)
-            curl -s -X POST -H "Content-Type: application/json" -d '{
-                "text": "SSL certificate renewal failed for $DOMAIN"
-            }' "\$WEBHOOK_URL" >/dev/null 2>&1
-            ;;
+        D|d) send_discord_webhook ;;
+        S|s) send_slack_webhook ;;
+        G|g) send_googlechat_webhook ;;
+        *) send_discord_webhook ;; # Default to Discord
     esac
 fi
 EOF
     
+    # Set execute permissions
     chmod +x /etc/letsencrypt/renewal-hooks/deploy/webhook-notify.sh \
              /etc/letsencrypt/renewal-hooks/post/webhook-notify-failure.sh || {
         log_error "Failed to set execute permissions on webhook scripts"
         return 1
     }
     
-    log_success "Webhook notifications configured"
+    log_success "Webhook notifications configured successfully"
     return 0
 }
 
@@ -433,6 +569,7 @@ test_certificate_renewal() {
         return 0
     else
         log_warning "Certificate renewal test failed"
+        echo -e "${YELLOW}This might be temporary. Check /var/log/letsencrypt/letsencrypt.log for details${NC}"
         return 1
     fi
 }
@@ -471,12 +608,31 @@ show_summary() {
         echo -e "  ${YELLOW}Note: SSL certificate was not installed${NC}"
     fi
     
-    echo -e "\n${YELLOW}Log file: $LOG_FILE${NC}"
-    echo -e "${YELLOW}Configuration saved: $CONFIG_FILE${NC}"
+    echo -e "\n${GREEN}Next steps:${NC}"
+    echo -e "1. Configure your application to run on port ${BLUE}$PORT${NC}"
+    echo -e "2. Set up monitoring for your domain"
+    
+    echo -e "\n${YELLOW}Important files:${NC}"
+    echo -e "  - Log file: $LOG_FILE"
+    echo -e "  - Configuration: $CONFIG_FILE"
+    echo -e "  - Nginx config: /etc/nginx/sites-available/$DOMAIN"
+    
+    if [ $SSL_SUCCESS -eq 1 ]; then
+        echo -e "\n${GREEN}Certificate information:${NC}"
+        echo -e "  - Certificate path: /etc/letsencrypt/live/$DOMAIN/"
+        echo -e "  - Auto-renewal: Configured (runs daily)"
+    fi
 }
 
 # Main function
 main() {
+    # Create log file
+    touch "$LOG_FILE" 2>/dev/null || {
+        echo -e "${RED}Failed to create log file${NC}" >&2
+        exit 1
+    }
+    chmod 644 "$LOG_FILE" 2>/dev/null
+    
     # Parse command line arguments
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -501,17 +657,20 @@ main() {
                 shift 2
                 ;;
             -m|--webhook-mode)
-                WEBHOOK_MODE="$2"
+                WEBHOOK_MODE="${2^^}" # Convert to uppercase
                 shift 2
                 ;;
             -t|--webhook-type)
-                WEBHOOK_PLATFORM="$2"
+                WEBHOOK_PLATFORM="${2^^}" # Convert to uppercase
                 shift 2
                 ;;
             -c|--config)
                 CONFIG_FILE="$2"
                 shift 2
-                load_config || exit 1
+                if ! load_config; then
+                    echo -e "${RED}Failed to load configuration file${NC}" >&2
+                    exit 1
+                fi
                 ;;
             -n|--non-interactive)
                 NON_INTERACTIVE=1
@@ -525,8 +684,9 @@ main() {
                 show_help
                 ;;
             *)
-                log_error "Unknown option: $1"
+                echo -e "${RED}Unknown option: $1${NC}" >&2
                 show_help
+                exit 1
                 ;;
         esac
     done
@@ -535,55 +695,91 @@ main() {
     
     # Validate required parameters
     if [ -z "$DOMAIN" ]; then
-        [ "$NON_INTERACTIVE" -eq 1 ] && { log_error "Domain is required in non-interactive mode"; exit 1; }
-        ask_question "Enter your domain name (e.g., example.com)" DOMAIN
+        if [ "$NON_INTERACTIVE" -eq 1 ]; then
+            log_error "Domain is required in non-interactive mode"
+            exit 1
+        fi
+        ask_question_with_validation "Enter your domain name (e.g., example.com)" DOMAIN validate_domain || exit 1
+    else
+        validate_domain "$DOMAIN" || exit 1
     fi
-    validate_domain "$DOMAIN" || exit 1
     
     if [ -z "$PORT" ]; then
-        [ "$NON_INTERACTIVE" -eq 1 ] && PORT=3000
-        ask_question "Enter your application port" PORT "3000"
+        if [ "$NON_INTERACTIVE" -eq 1 ]; then
+            PORT=3000
+            log_and_print "Using default port 3000 in non-interactive mode"
+        else
+            ask_question_with_validation "Enter your application port (1-65535)" PORT validate_port "3000" || exit 1
+        fi
+    else
+        validate_port "$PORT" || exit 1
     fi
-    validate_port "$PORT" || exit 1
     
     if [ -z "$CF_EMAIL" ]; then
-        [ "$NON_INTERACTIVE" -eq 1 ] && { log_error "Cloudflare email is required in non-interactive mode"; exit 1; }
-        ask_question "Enter your Cloudflare email" CF_EMAIL
+        if [ "$NON_INTERACTIVE" -eq 1 ]; then
+            log_error "Cloudflare email is required in non-interactive mode"
+            exit 1
+        fi
+        ask_question_with_validation "Enter your Cloudflare email" CF_EMAIL validate_email || exit 1
+    else
+        validate_email "$CF_EMAIL" || exit 1
     fi
-    validate_email "$CF_EMAIL" || exit 1
     
     if [ -z "$CF_API_KEY" ]; then
-        [ "$NON_INTERACTIVE" -eq 1 ] && { log_error "Cloudflare API key is required in non-interactive mode"; exit 1; }
-        ask_question "Enter your Cloudflare API key" CF_API_KEY "" 1
+        if [ "$NON_INTERACTIVE" -eq 1 ]; then
+            log_error "Cloudflare API key is required in non-interactive mode"
+            exit 1
+        fi
+        ask_question_with_validation "Enter your Cloudflare API key" CF_API_KEY : "1" || exit 1
     fi
     
     # Save configuration
-    save_config
+    if ! save_config; then
+        log_warning "Failed to save configuration, continuing anyway"
+    fi
     
     # Install dependencies
-    install_dependencies || exit 1
+    if ! install_dependencies; then
+        log_error "Failed to install required dependencies"
+        exit 1
+    fi
     
     # Setup Cloudflare credentials
-    setup_cloudflare_credentials || exit 1
+    if ! setup_cloudflare_credentials; then
+        log_error "Failed to setup Cloudflare credentials"
+        exit 1
+    fi
     
     # Generate SSL certificate
     if generate_ssl_certificate; then
         SSL_SUCCESS=1
     else
-        [ "$NON_INTERACTIVE" -eq 1 ] && exit 1
-        ask_question "SSL generation failed. Continue without SSL? (Y/n)" CONTINUE "Y"
-        [[ "${CONTINUE,,}" != "y" ]] && exit 1
+        if [ "$NON_INTERACTIVE" -eq 1 ]; then
+            log_error "SSL generation failed in non-interactive mode"
+            exit 1
+        fi
+        ask_question_with_validation "SSL generation failed. Continue without SSL? (Y/n)" CONTINUE : "Y" || exit 1
+        if [[ "${CONTINUE,,}" != "y" ]]; then
+            exit 1
+        fi
     fi
     
     # Configure Nginx
-    configure_nginx "$DOMAIN" "$PORT" "$SSL_SUCCESS" || exit 1
+    if ! configure_nginx "$DOMAIN" "$PORT" "$SSL_SUCCESS"; then
+        log_error "Failed to configure Nginx"
+        exit 1
+    fi
     
     # Setup firewall
-    setup_firewall
+    if ! setup_firewall; then
+        log_warning "Firewall configuration failed, continuing anyway"
+    fi
     
     # Setup webhooks if configured
     if [ -n "$WEBHOOK_URL" ]; then
-        setup_webhooks
+        if ! setup_webhooks; then
+            log_warning "Webhook configuration failed, continuing anyway"
+        fi
     fi
     
     # Test certificate renewal if SSL was successful
@@ -597,6 +793,15 @@ main() {
     
     # Show summary
     show_summary
+    
+    # Final check
+    if [ "$SSL_SUCCESS" -eq 0 ]; then
+        echo -e "\n${YELLOW}Warning: SSL certificate was not installed.${NC}"
+        echo -e "You can try running the script again to generate the SSL certificate."
+    fi
+    
+    log_success "Installation completed successfully"
+    exit 0
 }
 
 # Run main function
