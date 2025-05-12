@@ -744,47 +744,53 @@ main() {
         ask_question_with_validation "Enter your Cloudflare API key" CF_API_KEY : "1" || exit 1
     fi
 
-    # Webhook configuration - FIXED SECTION
-    if [ -z "$WEBHOOK_URL" ] && [ "$NON_INTERACTIVE" -eq 0 ]; then
-        ask_question "Do you want to configure webhook notifications? (y/N)" WEBHOOK_CHOICE "N"
-        WEBHOOK_CHOICE="${WEBHOOK_CHOICE:-N}"  # Ensure default is N if empty
+# Webhook configuration - FIXED TO PROPERLY HANDLE INPUT
+if [ -z "$WEBHOOK_URL" ] && [ "$NON_INTERACTIVE" -eq 0 ]; then
+    echo -e "${BLUE}"
+    read -r -p "Do you want to configure webhook notifications? [y/N] " WEBHOOK_CHOICE
+    echo -e "${NC}"
+    
+    if [[ "${WEBHOOK_CHOICE,,}" == "y" ]]; then
+        # Ask for webhook platform
+        echo -e "${BLUE}"
+        read -r -p "Webhook platform? (D)iscord, (S)lack, (G)oogle Chat [D]: " WEBHOOK_PLATFORM
+        echo -e "${NC}"
+        WEBHOOK_PLATFORM=${WEBHOOK_PLATFORM:-D}
+        WEBHOOK_PLATFORM="${WEBHOOK_PLATFORM^^}"
         
-        if [[ "${WEBHOOK_CHOICE,,}" == "y" ]]; then
-            # Ask for webhook platform
-            ask_question "Webhook platform? (D)iscord, (S)lack, (G)oogle Chat" WEBHOOK_PLATFORM "D"
-            WEBHOOK_PLATFORM="${WEBHOOK_PLATFORM:-D}"  # Default to Discord
-            WEBHOOK_PLATFORM="${WEBHOOK_PLATFORM^^}"   # Convert to uppercase
+        # Ask for notification mode
+        echo -e "${BLUE}"
+        read -r -p "Notification mode? (S)uccess, (F)ailure, (B)oth [B]: " WEBHOOK_MODE
+        echo -e "${NC}"
+        WEBHOOK_MODE=${WEBHOOK_MODE:-B}
+        WEBHOOK_MODE="${WEBHOOK_MODE^^}"
+        
+        # Ask for webhook URL with validation
+        while true; do
+            echo -e "${BLUE}"
+            read -r -p "Enter your webhook URL: " WEBHOOK_URL
+            echo -e "${NC}"
             
-            # Ask for notification mode
-            ask_question "Notification mode? (S)uccess, (F)ailure, (B)oth" WEBHOOK_MODE "B"
-            WEBHOOK_MODE="${WEBHOOK_MODE:-B}"  # Default to Both
-            WEBHOOK_MODE="${WEBHOOK_MODE^^}"   # Convert to uppercase
-            
-            # Ask for webhook URL with validation
-            while true; do
-                ask_question "Enter your webhook URL" WEBHOOK_URL
-                if [ -z "$WEBHOOK_URL" ]; then
-                    echo -e "${YELLOW}Webhook URL cannot be empty${NC}"
-                elif validate_webhook_url "$WEBHOOK_URL"; then
-                    break
-                fi
-            done
-            
-            # Test webhook
-            log_and_print "Testing webhook configuration..."
-            if curl -s -o /dev/null -w "%{http_code}" "$WEBHOOK_URL" | grep -q "200"; then
-                log_success "Webhook test successful"
+            if [ -z "$WEBHOOK_URL" ]; then
+                echo -e "${YELLOW}Webhook URL cannot be empty${NC}"
+            elif validate_webhook_url "$WEBHOOK_URL"; then
+                break
             else
-                log_warning "Webhook test failed (URL might still work)"
-                ask_question "Continue despite webhook test failure? (Y/n)" CONTINUE "Y"
-                CONTINUE="${CONTINUE:-Y}"
-                [[ "${CONTINUE,,}" != "y" ]] && exit 1
+                echo -e "${YELLOW}Please enter a valid webhook URL starting with http:// or https://${NC}"
             fi
+        done
+        
+        # Test webhook
+        log_and_print "Testing webhook configuration..."
+        if curl -s -o /dev/null -w "%{http_code}" "$WEBHOOK_URL" | grep -q "200"; then
+            log_success "Webhook test successful"
         else
-            # Explicitly clear webhook settings if user chose no
-            WEBHOOK_URL=""
-            WEBHOOK_MODE="B"
-            WEBHOOK_PLATFORM="D"
+            log_warning "Webhook test failed (URL might still work)"
+            echo -e "${BLUE}"
+            read -r -p "Continue despite webhook test failure? [Y/n] " CONTINUE
+            echo -e "${NC}"
+            CONTINUE=${CONTINUE:-Y}
+            [[ "${CONTINUE,,}" != "y" ]] && exit 1
         fi
     fi
     
