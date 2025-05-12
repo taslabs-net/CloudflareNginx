@@ -21,6 +21,7 @@ WEBHOOK_URL=""
 WEBHOOK_MODE="B"
 WEBHOOK_PLATFORM="D"
 SSL_SUCCESS=0
+QUIET_MODE=0
 
 # Cleanup function
 cleanup() {
@@ -34,22 +35,22 @@ log() {
 }
 
 log_and_print() {
-    [ "$QUIET_MODE" -eq 0 ] && echo -e "${BLUE}$1${NC}"
+    [[ $QUIET_MODE -eq 0 ]] && echo -e "${BLUE}$1${NC}"
     log "INFO: $1"
 }
 
 log_success() {
-    [ "$QUIET_MODE" -eq 0 ] && echo -e "${GREEN}✓ $1${NC}"
+    [[ $QUIET_MODE -eq 0 ]] && echo -e "${GREEN}✓ $1${NC}"
     log "SUCCESS: $1"
 }
 
 log_warning() {
-    [ "$QUIET_MODE" -eq 0 ] && echo -e "${YELLOW}⚠ $1${NC}"
+    [[ $QUIET_MODE -eq 0 ]] && echo -e "${YELLOW}⚠ $1${NC}"
     log "WARNING: $1"
 }
 
 log_error() {
-    [ "$QUIET_MODE" -eq 0 ] && echo -e "${RED}✗ $1${NC}"
+    [[ $QUIET_MODE -eq 0 ]] && echo -e "${RED}✗ $1${NC}"
     log "ERROR: $1"
 }
 
@@ -91,7 +92,7 @@ validate_webhook_url() {
 }
 
 show_header() {
-    [ "$QUIET_MODE" -eq 1 ] && return
+    [[ $QUIET_MODE -eq 1 ]] && return
     clear
     echo -e "${BLUE}"
     echo "==============================================="
@@ -386,7 +387,7 @@ setup_firewall() {
 }
 
 setup_webhooks() {
-    [ -z "$WEBHOOK_URL" ] && return 0
+    [[ -z "$WEBHOOK_URL" ]] && return 0
     
     log_and_print "Configuring webhook notifications..."
     
@@ -496,7 +497,7 @@ EOF
 }
 
 show_summary() {
-    [ "$QUIET_MODE" -eq 1 ] && return
+    [[ $QUIET_MODE -eq 1 ]] && return
     
     echo -e "\n${GREEN}=== Installation Summary ===${NC}"
     echo -e "Domain: ${BLUE}$DOMAIN${NC}"
