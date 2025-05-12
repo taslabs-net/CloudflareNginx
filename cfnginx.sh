@@ -787,7 +787,6 @@ main() {
             WEBHOOK_PLATFORM="D"
         fi
     fi
-    fi
     
     # Save configuration
     if ! save_config; then
