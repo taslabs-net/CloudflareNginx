@@ -744,44 +744,49 @@ main() {
         ask_question_with_validation "Enter your Cloudflare API key" CF_API_KEY : "1" || exit 1
     fi
 
-    # Webhook configuration (NEW IMPROVED SECTION)
+    # Webhook configuration - FIXED SECTION
     if [ -z "$WEBHOOK_URL" ] && [ "$NON_INTERACTIVE" -eq 0 ]; then
         ask_question "Do you want to configure webhook notifications? (y/N)" WEBHOOK_CHOICE "N"
+        WEBHOOK_CHOICE="${WEBHOOK_CHOICE:-N}"  # Ensure default is N if empty
         
         if [[ "${WEBHOOK_CHOICE,,}" == "y" ]]; then
             # Ask for webhook platform
             ask_question "Webhook platform? (D)iscord, (S)lack, (G)oogle Chat" WEBHOOK_PLATFORM "D"
-            WEBHOOK_PLATFORM="${WEBHOOK_PLATFORM^^}"
-            
-            # Validate platform choice
-            if [[ ! "$WEBHOOK_PLATFORM" =~ ^[DSG]$ ]]; then
-                log_warning "Invalid platform choice. Defaulting to Discord."
-                WEBHOOK_PLATFORM="D"
-            fi
+            WEBHOOK_PLATFORM="${WEBHOOK_PLATFORM:-D}"  # Default to Discord
+            WEBHOOK_PLATFORM="${WEBHOOK_PLATFORM^^}"   # Convert to uppercase
             
             # Ask for notification mode
             ask_question "Notification mode? (S)uccess, (F)ailure, (B)oth" WEBHOOK_MODE "B"
-            WEBHOOK_MODE="${WEBHOOK_MODE^^}"
-            
-            # Validate mode choice
-            if [[ ! "$WEBHOOK_MODE" =~ ^[SFB]$ ]]; then
-                log_warning "Invalid mode choice. Defaulting to Both."
-                WEBHOOK_MODE="B"
-            fi
+            WEBHOOK_MODE="${WEBHOOK_MODE:-B}"  # Default to Both
+            WEBHOOK_MODE="${WEBHOOK_MODE^^}"   # Convert to uppercase
             
             # Ask for webhook URL with validation
-            ask_question_with_validation "Enter your webhook URL" WEBHOOK_URL validate_webhook_url || exit 1
+            while true; do
+                ask_question "Enter your webhook URL" WEBHOOK_URL
+                if [ -z "$WEBHOOK_URL" ]; then
+                    echo -e "${YELLOW}Webhook URL cannot be empty${NC}"
+                elif validate_webhook_url "$WEBHOOK_URL"; then
+                    break
+                fi
+            done
             
             # Test webhook
             log_and_print "Testing webhook configuration..."
-            if ! curl -s -o /dev/null -w "%{http_code}" "$WEBHOOK_URL" | grep -q "200"; then
+            if curl -s -o /dev/null -w "%{http_code}" "$WEBHOOK_URL" | grep -q "200"; then
+                log_success "Webhook test successful"
+            else
                 log_warning "Webhook test failed (URL might still work)"
                 ask_question "Continue despite webhook test failure? (Y/n)" CONTINUE "Y"
+                CONTINUE="${CONTINUE:-Y}"
                 [[ "${CONTINUE,,}" != "y" ]] && exit 1
-            else
-                log_success "Webhook test successful"
             fi
+        else
+            # Explicitly clear webhook settings if user chose no
+            WEBHOOK_URL=""
+            WEBHOOK_MODE="B"
+            WEBHOOK_PLATFORM="D"
         fi
+    fi
     fi
     
     # Save configuration
