@@ -1,6 +1,6 @@
 #!/bin/bash
-# CloudflareNginx Installer v2.2
-# Fully robust version with comprehensive error handling and user guidance
+# CloudflareNginx Installer v2.3
+# Complete version with webhook prompting and robust error handling
 
 # Configuration
 BLUE='\033[0;34m'
@@ -94,6 +94,26 @@ validate_webhook_url() {
 }
 
 # User interaction functions
+ask_question() {
+    local question=$1
+    local var_name=$2
+    local default_value=${3:-}
+    local hide_input=${4:-0}
+
+    [ "$NON_INTERACTIVE" -eq 1 ] && return 0
+
+    echo -e "${BLUE}"
+    if [ "$hide_input" -eq 1 ]; then
+        read -r -s -p "$question [${default_value}]: " $var_name
+    else
+        read -r -p "$question [${default_value}]: " $var_name
+    fi
+    echo -e "${NC}"
+
+    eval "[ -z \"\$$var_name\" ] && $var_name=\"$default_value\""
+    log "User input for '$question': ${!var_name}"
+}
+
 ask_question_with_validation() {
     local question=$1
     local var_name=$2
@@ -106,18 +126,9 @@ ask_question_with_validation() {
     [ "$NON_INTERACTIVE" -eq 1 ] && return 0
 
     while (( attempt < max_attempts )); do
-        echo -e "${BLUE}"
-        if [ "$hide_input" -eq 1 ]; then
-            read -r -s -p "$question [${default_value}]: " $var_name
-        else
-            read -r -p "$question [${default_value}]: " $var_name
-        fi
-        echo -e "${NC}"
-
-        eval "[ -z \"\$$var_name\" ] && $var_name=\"$default_value\""
+        ask_question "$question" "$var_name" "$default_value" "$hide_input"
         
         if $validation_func "${!var_name}"; then
-            log "User input for '$question': ${!var_name}"
             return 0
         fi
         
@@ -136,7 +147,7 @@ show_header() {
     clear
     echo -e "${BLUE}"
     echo "==============================================="
-    echo "     Cloudflare Nginx Automated Setup v2.2     "
+    echo "     Cloudflare Nginx Automated Setup v2.3     "
     echo "==============================================="
     echo -e "${NC}"
     log "Installation started"
@@ -732,6 +743,46 @@ main() {
         fi
         ask_question_with_validation "Enter your Cloudflare API key" CF_API_KEY : "1" || exit 1
     fi
+
+    # Webhook configuration (NEW IMPROVED SECTION)
+    if [ -z "$WEBHOOK_URL" ] && [ "$NON_INTERACTIVE" -eq 0 ]; then
+        ask_question "Do you want to configure webhook notifications? (y/N)" WEBHOOK_CHOICE "N"
+        
+        if [[ "${WEBHOOK_CHOICE,,}" == "y" ]]; then
+            # Ask for webhook platform
+            ask_question "Webhook platform? (D)iscord, (S)lack, (G)oogle Chat" WEBHOOK_PLATFORM "D"
+            WEBHOOK_PLATFORM="${WEBHOOK_PLATFORM^^}"
+            
+            # Validate platform choice
+            if [[ ! "$WEBHOOK_PLATFORM" =~ ^[DSG]$ ]]; then
+                log_warning "Invalid platform choice. Defaulting to Discord."
+                WEBHOOK_PLATFORM="D"
+            fi
+            
+            # Ask for notification mode
+            ask_question "Notification mode? (S)uccess, (F)ailure, (B)oth" WEBHOOK_MODE "B"
+            WEBHOOK_MODE="${WEBHOOK_MODE^^}"
+            
+            # Validate mode choice
+            if [[ ! "$WEBHOOK_MODE" =~ ^[SFB]$ ]]; then
+                log_warning "Invalid mode choice. Defaulting to Both."
+                WEBHOOK_MODE="B"
+            fi
+            
+            # Ask for webhook URL with validation
+            ask_question_with_validation "Enter your webhook URL" WEBHOOK_URL validate_webhook_url || exit 1
+            
+            # Test webhook
+            log_and_print "Testing webhook configuration..."
+            if ! curl -s -o /dev/null -w "%{http_code}" "$WEBHOOK_URL" | grep -q "200"; then
+                log_warning "Webhook test failed (URL might still work)"
+                ask_question "Continue despite webhook test failure? (Y/n)" CONTINUE "Y"
+                [[ "${CONTINUE,,}" != "y" ]] && exit 1
+            else
+                log_success "Webhook test successful"
+            fi
+        fi
+    fi
     
     # Save configuration
     if ! save_config; then
@@ -758,10 +809,8 @@ main() {
             log_error "SSL generation failed in non-interactive mode"
             exit 1
         fi
-        ask_question_with_validation "SSL generation failed. Continue without SSL? (Y/n)" CONTINUE : "Y" || exit 1
-        if [[ "${CONTINUE,,}" != "y" ]]; then
-            exit 1
-        fi
+        ask_question "SSL generation failed. Continue without SSL? (Y/n)" CONTINUE "Y"
+        [[ "${CONTINUE,,}" != "y" ]] && exit 1
     fi
     
     # Configure Nginx
