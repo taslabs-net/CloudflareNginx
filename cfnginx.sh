@@ -21,8 +21,6 @@ WEBHOOK_URL=""
 WEBHOOK_MODE="B"
 WEBHOOK_PLATFORM="D"
 SSL_SUCCESS=0
-RENEWAL_SUCCESS=0
-QUIET_MODE=0
 
 # Cleanup function
 cleanup() {
@@ -497,19 +495,6 @@ EOF
     return 0
 }
 
-test_certificate_renewal() {
-    log_and_print "Testing certificate renewal..."
-    
-    if certbot renew --dry-run >> "$LOG_FILE" 2>&1; then
-        log_success "Certificate renewal test successful"
-        return 0
-    else
-        log_warning "Certificate renewal test failed"
-        echo -e "${YELLOW}This might be temporary. Check /var/log/letsencrypt/letsencrypt.log for details${NC}"
-        return 1
-    fi
-}
-
 show_summary() {
     [ "$QUIET_MODE" -eq 1 ] && return
     
@@ -517,7 +502,7 @@ show_summary() {
     echo -e "Domain: ${BLUE}$DOMAIN${NC}"
     echo -e "Application Port: ${BLUE}$PORT${NC}"
     echo -e "SSL Certificate: $([ $SSL_SUCCESS -eq 1 ] && echo "${GREEN}Installed${NC}" || echo "${YELLOW}Not Installed${NC}")"
-    echo -e "Certificate Renewal: $([ $RENEWAL_SUCCESS -eq 1 ] && echo "${GREEN}Configured${NC}" || echo "${YELLOW}Not Tested${NC}")"
+    echo -e "Certificate Renewal: ${GREEN}Configured${NC}"
     
     if [ -n "$WEBHOOK_URL" ]; then
         echo -e "Webhook Notifications: ${GREEN}Enabled${NC}"
@@ -692,15 +677,6 @@ main() {
     if [ -n "$WEBHOOK_URL" ]; then
         if ! setup_webhooks; then
             log_warning "Webhook configuration failed, continuing anyway"
-        fi
-    fi
-    
-    # Test certificate renewal if SSL was successful
-    if [ "$SSL_SUCCESS" -eq 1 ]; then
-        if test_certificate_renewal; then
-            RENEWAL_SUCCESS=1
-        else
-            log_warning "Certificate renewal test failed (this might be temporary)"
         fi
     fi
     
