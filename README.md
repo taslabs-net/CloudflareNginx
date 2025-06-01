@@ -138,8 +138,11 @@ rm /etc/letsencrypt/cloudflare.ini
 Logs and Configuration Files
 
 Log file: /var/log/cloudflarenginx-install.log
+
 Configuration: /etc/cloudflarenginx.conf
+
 Nginx config: /etc/nginx/sites-available/your-domain.com
+
 SSL certificates: /etc/letsencrypt/live/your-domain.com/
 
 For detailed troubleshooting, check the logs at /var/log/cloudflarenginx-install.log
